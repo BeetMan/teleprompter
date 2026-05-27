@@ -1,0 +1,42 @@
+{
+  "name": "teleprompter",
+  "productName": "提词器",
+  "version": "4.6.0",
+  "description": "A desktop teleprompter app.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable nsis --x64"
+  },
+  "build": {
+    "appId": "local.codex.teleprompter",
+    "productName": "提词器",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "resources/**"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "resources/AppIcon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.12"
+  }
+}
