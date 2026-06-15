@@ -1,21 +1,31 @@
-# 提词器 Tauri 版本
+# 提词器 Tauri 版
 
-这是提词器的轻量桌面版本，目标是替代 Electron 包，减少安装体积并提升启动速度。
+Tauri 版是提词器的轻量桌面版本，当前版本为 `6.0.0`。它复用网页界面，并通过 Rust/Tauri 实现第二屏窗口、双屏状态同步、文件导入和程序生命周期管理。
 
-## 当前状态
+## 功能
 
-- 复用现有网页 UI 和提词逻辑。
-- 保留主窗口控制、第二屏输出、镜像仅作用于第二屏、Esc 关闭第二屏等功能。
-- 使用 Tauri/Rust 实现第二屏窗口创建、关闭和状态同步。
-- 版本号为 `4.0.0`。
+- 稿件编辑及 `.txt`、`.md`、`.markdown`、`.docx` 导入
+- 文件拖拽读取并保留原始连续空行
+- 自动滚动、手动定位、速度调节和快捷键控制
+- 独立第二屏输出，输出窗口不显示底部控制栏
+- 主屏固定比例预览及双屏滚动同步
+- 水平镜像、垂直镜像和两种明暗显示模式
+- 字号、行距、字间距、宽度、水平位置和指示线调节
+- 剩余字数、浏览进度条及指示线进度点
+- 关闭主程序时彻底结束所有相关窗口和进程
 
-## 运行前准备
+## 环境要求
 
-Tauri 需要本机安装 Rust 工具链。当前电脑还没有检测到 `cargo`，所以暂时不能直接构建。
+- Windows 10 或更高版本
+- Microsoft Edge WebView2 Runtime
+- Node.js 20 LTS 或 22 LTS
+- Rust 稳定版工具链
 
-安装 Rust 后，重新打开终端并确认：
+确认环境：
 
 ```powershell
+node --version
+npm --version
 rustc --version
 cargo --version
 ```
@@ -27,21 +37,25 @@ npm install
 npm run dev
 ```
 
-## 打包
+## Windows 打包
 
 ```powershell
+npm install
 npm run build
 ```
 
-打包成功后，Windows 安装包会生成在：
+主要构建结果：
 
 ```text
-src-tauri\target\release\bundle
+src-tauri/target/release/teleprompter_tauri.exe
+src-tauri/target/release/bundle/nsis/提词器_6.0.0_x64-setup.exe
 ```
 
 ## 目录说明
 
-- `web/index.html`：提词器网页 UI。
-- `src-tauri/src/lib.rs`：Tauri 主逻辑，负责第二屏窗口和状态同步。
-- `src-tauri/tauri.conf.json`：Tauri 应用配置。
-- `功能介绍.md`：面向用户的功能介绍文档。
+- `web/index.html`：主窗口界面和提词逻辑
+- `web/output.html`：第二屏输出页面
+- `src-tauri/src/lib.rs`：窗口、事件和状态同步逻辑
+- `src-tauri/tauri.conf.json`：Tauri 应用与打包配置
+- `src-tauri/capabilities/`：Tauri 权限配置
+- `功能介绍.md`：完整功能说明
