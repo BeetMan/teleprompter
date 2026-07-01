@@ -36,12 +36,19 @@ function Set-PackageLockRootVersion {
     return
   }
 
-  $json = Get-Content -Raw -Encoding UTF8 -LiteralPath $fullPath | ConvertFrom-Json
-  $json.version = $Version
-  if ($json.packages -and $json.packages.PSObject.Properties.Name -contains '') {
-    $json.packages.PSObject.Properties[''].Value.version = $Version
+  $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $fullPath
+  $matches = [regex]::Matches($content, '"version"\s*:\s*"\d+\.\d+\.\d+"')
+  if ($matches.Count -lt 2) {
+    throw "$Path does not contain expected root version fields."
   }
-  $json | ConvertTo-Json -Depth 100 | Set-Content -Encoding UTF8 -LiteralPath $fullPath
+
+  for ($index = 1; $index -ge 0; $index--) {
+    $match = $matches[$index]
+    $replacement = "`"version`": `"$Version`""
+    $content = $content.Remove($match.Index, $match.Length).Insert($match.Index, $replacement)
+  }
+
+  Set-Content -Encoding UTF8 -LiteralPath $fullPath -Value $content
 }
 
 function Replace-InFile {
@@ -64,13 +71,13 @@ function Replace-InFile {
 Set-Content -Encoding UTF8 -LiteralPath (Join-Path $root 'VERSION') -Value $Version
 
 Set-JsonVersion -Path 'windows-tauri/package.json' -Version $Version
+Set-PackageLockRootVersion -Path 'windows-tauri/package-lock.json' -Version $Version
 Set-JsonVersion -Path 'windows-tauri/src-tauri/tauri.conf.json' -Version $Version
 Set-PackageLockRootVersion -Path 'windows-electron/package-lock.json' -Version $Version
 Set-JsonVersion -Path 'windows-electron/package.json' -Version $Version
 
 Replace-InFile -Path 'windows-tauri/src-tauri/Cargo.toml' -Pattern 'version = "\d+\.\d+\.\d+"' -Replacement "version = `"$Version`""
 Replace-InFile -Path 'windows-tauri/web/index.html' -Pattern 'app-version" content="\d+\.\d+"' -Replacement "app-version`" content=`"$shortVersion`""
-Replace-InFile -Path 'windows-tauri/web/output.html' -Pattern 'app-version" content="\d+\.\d+"' -Replacement "app-version`" content=`"$shortVersion`""
 Replace-InFile -Path 'windows-electron/index.html' -Pattern 'app-version" content="\d+\.\d+"' -Replacement "app-version`" content=`"$shortVersion`""
 
 Write-Host "Synchronized desktop app version to $Version"

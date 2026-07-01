@@ -24,7 +24,7 @@
       },
       {
         "label": "output",
-        "url": "output.html",
+        "url": "index.html?mode=output",
         "title": "提词器输出",
         "width": 1280,
         "height": 720,

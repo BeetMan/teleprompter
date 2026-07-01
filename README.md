@@ -17,6 +17,21 @@
 .\scripts\sync-version.ps1 -Version 6.0.0
 ```
 
+Tauri 和 Electron 当前使用一致的前端页面。发布前可以运行：
+
+```powershell
+.\scripts\sync-frontend.ps1
+.\scripts\check-version.ps1
+.\scripts\check-frontend-parity.ps1
+```
+
+完整项目检查：
+
+```powershell
+npm install
+npm run check
+```
+
 ## 主要功能
 
 - 导入 `.txt`、`.md`、`.markdown`、`.docx` 稿件

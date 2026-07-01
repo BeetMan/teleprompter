@@ -33,6 +33,33 @@ function Assert-JsonVersion {
   }
 }
 
+function Assert-PackageLockRootVersion {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Expected
+  )
+
+  $fullPath = Join-Path $root $Path
+  if (-not (Test-Path -LiteralPath $fullPath)) {
+    $script:errors.Add("$Path is missing.")
+    return
+  }
+
+  $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $fullPath
+  $matches = [regex]::Matches($content, '"version"\s*:\s*"(?<version>\d+\.\d+\.\d+)"')
+  if ($matches.Count -lt 2) {
+    $script:errors.Add("$Path does not contain expected root version fields.")
+    return
+  }
+
+  foreach ($match in @($matches[0], $matches[1])) {
+    $actual = $match.Groups['version'].Value
+    if ($actual -ne $Expected) {
+      $script:errors.Add("$Path root version is $actual, expected $Expected.")
+    }
+  }
+}
+
 function Assert-TextMatch {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
@@ -53,12 +80,13 @@ function Assert-TextMatch {
 }
 
 Assert-JsonVersion -Path 'windows-tauri/package.json' -Expected $expected
+Assert-PackageLockRootVersion -Path 'windows-tauri/package-lock.json' -Expected $expected
 Assert-JsonVersion -Path 'windows-tauri/src-tauri/tauri.conf.json' -Expected $expected
 Assert-JsonVersion -Path 'windows-electron/package.json' -Expected $expected
+Assert-PackageLockRootVersion -Path 'windows-electron/package-lock.json' -Expected $expected
 
 Assert-TextMatch -Path 'windows-tauri/src-tauri/Cargo.toml' -Pattern "version = `"$([regex]::Escape($expected))`"" -Message "windows-tauri/src-tauri/Cargo.toml version is not $expected."
 Assert-TextMatch -Path 'windows-tauri/web/index.html' -Pattern "app-version`" content=`"$([regex]::Escape($shortVersion))`"" -Message "windows-tauri/web/index.html app-version is not $shortVersion."
-Assert-TextMatch -Path 'windows-tauri/web/output.html' -Pattern "app-version`" content=`"$([regex]::Escape($shortVersion))`"" -Message "windows-tauri/web/output.html app-version is not $shortVersion."
 Assert-TextMatch -Path 'windows-electron/index.html' -Pattern "app-version`" content=`"$([regex]::Escape($shortVersion))`"" -Message "windows-electron/index.html app-version is not $shortVersion."
 
 if ($errors.Count -gt 0) {

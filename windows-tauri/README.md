@@ -53,8 +53,7 @@ src-tauri/target/release/bundle/nsis/提词器_6.0.0_x64-setup.exe
 
 ## 目录说明
 
-- `web/index.html`：主窗口界面和提词逻辑
-- `web/output.html`：第二屏输出页面
+- `web/index.html`：主窗口界面、第二屏输出模式和提词逻辑
 - `src-tauri/src/lib.rs`：窗口、事件和状态同步逻辑
 - `src-tauri/tauri.conf.json`：Tauri 应用与打包配置
 - `src-tauri/capabilities/`：Tauri 权限配置

@@ -1126,6 +1126,25 @@
       document.body.classList.add("output-mode");
     }
 
+    if (!window.teleprompterBridge && window.__TAURI__?.core?.invoke) {
+      const tauriInvoke = window.__TAURI__.core.invoke;
+      const tauriListen = window.__TAURI__.event?.listen;
+      window.teleprompterBridge = {
+        toggleOutputWindow: () => tauriInvoke("toggle_output_window"),
+        closeOutputWindow: () => tauriInvoke("close_output_window"),
+        outputWindowReady: () => tauriInvoke("output_window_ready"),
+        sendState: (state) => {
+          tauriInvoke("teleprompter_state", { state }).catch(() => {});
+        },
+        onState: (callback) => {
+          tauriListen?.("teleprompter-state", (event) => callback(event.payload));
+        },
+        onOutputStatus: (callback) => {
+          tauriListen?.("output-window-status", (event) => callback(event.payload));
+        },
+      };
+    }
+
     const defaultState = {
       text: elements.input.value,
       speed: 42,
@@ -2025,6 +2044,9 @@
     hydrate();
     window.teleprompterBridge?.onState?.(applyRemoteState);
     window.teleprompterBridge?.onOutputStatus?.((state) => setOutputActive(Boolean(state?.opened)));
+    if (isOutputMode) {
+      window.teleprompterBridge?.outputWindowReady?.();
+    }
     publishState(true);
     requestAnimationFrame(animate);
   </script>

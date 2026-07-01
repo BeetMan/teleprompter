@@ -1115,7 +1115,7 @@
     let seekingProgress = false;
     let activeTooltipTarget = null;
     const params = new URLSearchParams(window.location.search);
-    const isOutputMode = params.get("mode") === "output" || window.location.pathname.endsWith("/output.html");
+    const isOutputMode = params.get("mode") === "output";
     let applyingRemoteState = false;
     let lastPublishedAt = 0;
     let outputActive = false;
