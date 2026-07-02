@@ -1,6 +1,6 @@
 # 提词器 Tauri 版
 
-Tauri 版是提词器的轻量桌面版本，当前版本为 `6.0.0`。它复用网页界面，并通过 Rust/Tauri 实现第二屏窗口、双屏状态同步、文件导入和程序生命周期管理。
+Tauri 版是提词器的轻量桌面版本，当前版本为 `6.1.0`。它复用网页界面，并通过 Rust/Tauri 实现第二屏窗口、双屏状态同步、文件导入和程序生命周期管理。
 
 ## 功能
 
@@ -48,7 +48,7 @@ npm run build
 
 ```text
 src-tauri/target/release/teleprompter_tauri.exe
-src-tauri/target/release/bundle/nsis/提词器_6.0.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/提词器_6.1.0_x64-setup.exe
 ```
 
 ## 目录说明

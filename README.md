@@ -6,15 +6,15 @@
 
 ## 桌面版本
 
-- **Tauri 版 `6.0.0`**：体积较小、启动较快，推荐日常使用。
-- **Electron 版 `6.0.0`**：运行环境更完整，适合作为兼容版本。
+- **Tauri 版 `6.1.0`**：体积较小、启动较快，推荐日常使用。
+- **Electron 版 `6.1.0`**：运行环境更完整，适合作为兼容版本。
 
 两个版本使用相同的提词器界面与核心功能。
 
 项目使用统一产品版本号，当前版本记录在 `VERSION`。修改版本号时先运行：
 
 ```powershell
-.\scripts\sync-version.ps1 -Version 6.0.0
+.\scripts\sync-version.ps1 -Version 6.1.0
 ```
 
 Tauri 和 Electron 当前使用一致的前端页面。发布前可以运行：
@@ -108,8 +108,8 @@ windows-electron/dist/
 
 ```text
 .
-├── windows-tauri/       Tauri 6.0 桌面版本
-├── windows-electron/    Electron 6.0 桌面版本
+├── windows-tauri/       Tauri 6.1 桌面版本
+├── windows-electron/    Electron 6.1 桌面版本
 ├── scripts/             维护脚本
 ├── VERSION              当前统一产品版本号
 ├── 使用指南.md          用户操作指南

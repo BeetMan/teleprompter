@@ -79,6 +79,8 @@ function Assert-TextMatch {
   }
 }
 
+Assert-JsonVersion -Path 'package.json' -Expected $expected
+Assert-PackageLockRootVersion -Path 'package-lock.json' -Expected $expected
 Assert-JsonVersion -Path 'windows-tauri/package.json' -Expected $expected
 Assert-PackageLockRootVersion -Path 'windows-tauri/package-lock.json' -Expected $expected
 Assert-JsonVersion -Path 'windows-tauri/src-tauri/tauri.conf.json' -Expected $expected

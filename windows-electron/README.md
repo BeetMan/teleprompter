@@ -1,6 +1,6 @@
 # 提词器 Electron 版
 
-Electron 版是提词器的兼容桌面版本，当前版本为 `6.0.0`。它与 Tauri 版共享主要界面和提词功能，并通过 Electron 管理主窗口、第二屏输出和程序退出。
+Electron 版是提词器的兼容桌面版本，当前版本为 `6.1.0`。它与 Tauri 版共享主要界面和提词功能，并通过 Electron 管理主窗口、第二屏输出和程序退出。
 
 ## 功能
 
@@ -36,8 +36,8 @@ npm run dist:win -- --config.win.signAndEditExecutable=false
 
 构建结果位于 `dist/`：
 
-- `提词器 6.0.0.exe`：便携版
-- `提词器 Setup 6.0.0.exe`：安装版
+- `提词器 6.1.0.exe`：便携版
+- `提词器 Setup 6.1.0.exe`：安装版
 
 ## 目录说明
 

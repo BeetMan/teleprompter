@@ -8,6 +8,16 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $shortVersion = ($Version -split '\.')[0..1] -join '.'
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+function Write-Utf8NoBom {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Content
+  )
+
+  [System.IO.File]::WriteAllText($Path, $Content, $script:utf8NoBom)
+}
 
 function Set-JsonVersion {
   param(
@@ -20,9 +30,13 @@ function Set-JsonVersion {
     return
   }
 
-  $json = Get-Content -Raw -Encoding UTF8 -LiteralPath $fullPath | ConvertFrom-Json
-  $json.version = $Version
-  $json | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 -LiteralPath $fullPath
+  $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $fullPath
+  $pattern = '"version"\s*:\s*"\d+\.\d+\.\d+"'
+  if ($content -notmatch $pattern) {
+    throw "$Path does not contain a version field."
+  }
+  $content = [regex]::Replace($content, $pattern, "`"version`": `"$Version`"", 1)
+  Write-Utf8NoBom -Path $fullPath -Content $content
 }
 
 function Set-PackageLockRootVersion {
@@ -48,7 +62,7 @@ function Set-PackageLockRootVersion {
     $content = $content.Remove($match.Index, $match.Length).Insert($match.Index, $replacement)
   }
 
-  Set-Content -Encoding UTF8 -LiteralPath $fullPath -Value $content
+  Write-Utf8NoBom -Path $fullPath -Content $content
 }
 
 function Replace-InFile {
@@ -65,11 +79,13 @@ function Replace-InFile {
 
   $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $fullPath
   $content = $content -replace $Pattern, $Replacement
-  Set-Content -Encoding UTF8 -LiteralPath $fullPath -Value $content
+  Write-Utf8NoBom -Path $fullPath -Content $content
 }
 
-Set-Content -Encoding UTF8 -LiteralPath (Join-Path $root 'VERSION') -Value $Version
+Write-Utf8NoBom -Path (Join-Path $root 'VERSION') -Content "$Version`n"
 
+Set-JsonVersion -Path 'package.json' -Version $Version
+Set-PackageLockRootVersion -Path 'package-lock.json' -Version $Version
 Set-JsonVersion -Path 'windows-tauri/package.json' -Version $Version
 Set-PackageLockRootVersion -Path 'windows-tauri/package-lock.json' -Version $Version
 Set-JsonVersion -Path 'windows-tauri/src-tauri/tauri.conf.json' -Version $Version
