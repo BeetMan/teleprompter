@@ -851,9 +851,73 @@
         grid-template-rows: auto minmax(150px, 32vh) auto;
       }
     }
+
+    /* 网页预览版（非桌面端，无原生桥）：隐藏第二屏输出按钮、显示顶部提示条 */
+    .web-banner {
+      display: none;
+    }
+
+    body.web-preview .web-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 6px 12px;
+      color: var(--muted);
+      background: rgba(7, 11, 15, .92);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    body.web-preview .web-banner a {
+      color: var(--accent-2);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    body.web-preview .web-banner a:hover {
+      text-decoration: underline;
+    }
+
+    body.web-preview .web-banner .dot-sep {
+      color: var(--line);
+    }
+
+    /* 预留顶部空间，避免 banner 遮挡提词画面 */
+    body.web-preview .app {
+      padding-top: 30px;
+    }
+
+    /* 浏览器无法跨窗口输出第二屏，直接隐藏该按钮 */
+    body.web-preview .button.output-button {
+      display: none;
+    }
+
+    @media (max-width: 720px) {
+      body.web-preview .app {
+        padding-top: 34px;
+      }
+
+      body.web-preview .web-banner {
+        font-size: 11px;
+        gap: 6px;
+      }
+    }
   </style>
 </head>
 <body>
+  <div class="web-banner" id="webBanner" aria-hidden="true">
+    <span>网页预览版（仅单屏）</span>
+    <span class="dot-sep">·</span>
+    <a href="https://github.com/BeetMan/teleprompter" target="_blank" rel="noopener">下载桌面版支持双屏输出</a>
+  </div>
   <div class="app">
     <main class="stage" id="stage" tabindex="0" aria-label="提词器预览">
       <div class="preview-surface" id="previewSurface">
@@ -1143,6 +1207,16 @@
           tauriListen?.("output-window-status", (event) => callback(event.payload));
         },
       };
+    }
+
+    // 非桌面壳环境（普通浏览器）：标记为网页预览版，
+    // 启用顶部提示条并隐藏依赖原生第二屏窗口的功能。
+    if (!window.teleprompterBridge && !window.webkit?.messageHandlers?.nativeFullscreen) {
+      document.body.classList.add("web-preview");
+      const banner = document.getElementById("webBanner");
+      if (banner) {
+        banner.setAttribute("aria-hidden", "false");
+      }
     }
 
     const defaultState = {
