@@ -68,3 +68,16 @@ test("secondary display aspect ratio drives both output and main preview layout"
   await expect(page.locator("#stage")).toHaveCSS("background-color", "rgb(0, 0, 0)");
   await expect(page.locator("#previewSurface")).toHaveCSS("background-color", "rgb(255, 255, 255)");
 });
+
+test("changing line spacing preserves the current scroll progress", async ({ page }) => {
+  await page.goto(appUrl);
+
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").fill(Array.from({ length: 100 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  await page.locator("#lineRange").fill("120");
+  await page.locator("#browseRange").fill("75");
+  await expect(page.locator("#browseValue")).toHaveText("75%");
+
+  await page.locator("#lineRange").fill("64");
+  await expect(page.locator("#browseValue")).toHaveText("75%");
+});

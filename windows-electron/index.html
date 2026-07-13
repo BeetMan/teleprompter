@@ -1186,6 +1186,7 @@
     const isOutputMode = params.get("mode") === "output";
     let applyingRemoteState = false;
     let lastPublishedAt = 0;
+    let resizeFrame = 0;
     let outputActive = false;
     let previewBaseWidth = 1280;
     let previewBaseHeight = 720;
@@ -1287,7 +1288,7 @@
       }
     }
 
-    function resizePreviewSurface(preserveProgress = true, preservedProgress = null) {
+    function resizePreviewSurface(preserveProgress = true, preservedProgress = null, immediate = false) {
       if (!elements.previewSurface) {
         return;
       }
@@ -1297,13 +1298,24 @@
       const rect = elements.stage.getBoundingClientRect();
       const scale = Math.min(rect.width / previewBaseWidth, rect.height / previewBaseHeight);
       elements.previewSurface.style.setProperty("--preview-scale", Math.max(0.01, scale));
-      requestAnimationFrame(() => {
+      const applyProgress = () => {
+        resizeFrame = 0;
         if (preserveProgress) {
           setScrollY(getScrollYFromProgress(progress));
         } else {
           updateProgress();
         }
-      });
+      };
+
+      if (resizeFrame) {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = 0;
+      }
+      if (immediate) {
+        applyProgress();
+      } else {
+        resizeFrame = requestAnimationFrame(applyProgress);
+      }
     }
 
     function setPreviewBaseSize(width, height, preserveProgress = true) {
@@ -1505,6 +1517,7 @@
     }
 
     function applyControls() {
+      const preservedProgress = getScrollProgress();
       const fontSize = Number(elements.sizeRange.value);
       const lineMin = Math.max(Number(elements.sizeRange.min) || 28, Math.round(fontSize));
       const lineMax = Number(elements.lineRange.max) || 180;
@@ -1540,7 +1553,7 @@
       elements.browseRange?.classList.toggle("mirrored-order", isBrowseProgressMirrored());
       setDisplayMode(displayMode);
       updateMirrorNote();
-      resizePreviewSurface(true);
+      resizePreviewSurface(true, preservedProgress, true);
       requestAnimationFrame(updateProgress);
       saveState();
       publishState(true);
