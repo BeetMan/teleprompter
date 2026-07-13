@@ -2,7 +2,7 @@
 
 一款面向录课、直播、短视频拍摄、演讲和会议发言的提词器——提供桌面版，也提供可直接在浏览器打开的在线预览。支持稿件导入、镜像显示、键盘控制和双屏同步（桌面版），适合普通外接屏、监看屏及反射式提词器使用。
 
-本项目完全由 Codex（GPT-5.5）编写，包括功能实现、桌面端适配、打包配置和项目文档。
+本项目完全由 AI 大模型编写，包括功能实现、桌面端适配、打包配置和项目文档。
 
 ## 在线预览
 
@@ -12,15 +12,15 @@
 
 ## 桌面版本
 
-- **Tauri 版 `6.1.0`**：体积较小、启动较快，推荐日常使用。
-- **Electron 版 `6.1.0`**：运行环境更完整，适合作为兼容版本。
+- **Tauri 版 `6.1.2`**：体积较小、启动较快，推荐日常使用。
+- **Electron 版 `6.1.2`**：运行环境更完整，适合作为兼容版本。
 
 两个版本使用相同的提词器界面与核心功能。
 
 项目使用统一产品版本号，当前版本记录在 `VERSION`。修改版本号时先运行：
 
 ```powershell
-.\scripts\sync-version.ps1 -Version 6.1.0
+.\scripts\sync-version.ps1 -Version 6.1.2
 ```
 
 Tauri 和 Electron 当前使用一致的前端页面。发布前可以运行：
@@ -126,8 +126,8 @@ windows-electron/dist/
 
 ```text
 .
-├── windows-tauri/       Tauri 6.1 桌面版本
-├── windows-electron/    Electron 6.1 桌面版本
+├── windows-tauri/       Tauri 6.1.2 桌面版本
+├── windows-electron/    Electron 6.1.2 桌面版本
 ├── workers/             Cloudflare Worker（在线版代理）
 ├── scripts/             维护脚本
 ├── VERSION              当前统一产品版本号
