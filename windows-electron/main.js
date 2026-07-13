@@ -39,10 +39,20 @@ function getOutputDisplay() {
   return displays.find((display) => display.id !== primary.id) || primary;
 }
 
+function getOutputStatus(opened) {
+  const display = getOutputDisplay();
+  return {
+    opened,
+    displayCount: screen.getAllDisplays().length,
+    outputWidth: display.bounds.width,
+    outputHeight: display.bounds.height,
+  };
+}
+
 function createOutputWindow() {
   if (outputWindow && !outputWindow.isDestroyed()) {
     outputWindow.focus();
-    return { opened: true, displayCount: screen.getAllDisplays().length };
+    return getOutputStatus(true);
   }
 
   const display = getOutputDisplay();
@@ -77,11 +87,12 @@ function createOutputWindow() {
 
   outputWindow.on("closed", () => {
     outputWindow = null;
-    mainWindow?.webContents.send("output-window-status", { opened: false });
+    mainWindow?.webContents.send("output-window-status", getOutputStatus(false));
   });
 
-  mainWindow?.webContents.send("output-window-status", { opened: true });
-  return { opened: true, displayCount: screen.getAllDisplays().length };
+  const status = getOutputStatus(true);
+  mainWindow?.webContents.send("output-window-status", status);
+  return status;
 }
 
 function closeOutputWindow() {
@@ -89,8 +100,9 @@ function closeOutputWindow() {
     outputWindow.close();
   }
   outputWindow = null;
-  mainWindow?.webContents.send("output-window-status", { opened: false });
-  return { opened: false, displayCount: screen.getAllDisplays().length };
+  const status = getOutputStatus(false);
+  mainWindow?.webContents.send("output-window-status", status);
+  return status;
 }
 
 function toggleOutputWindow() {

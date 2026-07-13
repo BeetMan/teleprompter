@@ -11,7 +11,8 @@ test("main UI renders the preview and controls", async ({ page }) => {
   await expect(page.locator("#stage")).toBeVisible();
   await expect(page.locator("#scriptText")).toBeVisible();
   await expect(page.locator("#playButton")).toBeVisible();
-  await expect(page.locator("#outputButton")).toBeVisible();
+  await expect(page.locator("body")).toHaveClass(/web-preview/);
+  await expect(page.locator("#outputButton")).toBeHidden();
   await expect(page.locator("#scriptInput")).toHaveValue(/大家好/);
 });
 
@@ -38,4 +39,45 @@ test("output mode hides controls and keeps teleprompter indicators", async ({ pa
   await expect(page.locator("#outputRemaining")).toBeVisible();
   await expect(page.locator("#guideProgressDot")).toBeVisible();
   await expect(page.locator("#scriptText")).toBeVisible();
+});
+
+test("secondary display aspect ratio drives both output and main preview layout", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.teleprompterBridge = {
+      toggleOutputWindow: async () => ({
+        opened: true,
+        displayCount: 2,
+        outputWidth: 1024,
+        outputHeight: 768,
+      }),
+      closeOutputWindow: async () => ({ opened: false, displayCount: 2 }),
+      sendState: () => {},
+      onState: () => {},
+      onOutputStatus: () => {},
+    };
+  });
+
+  await page.goto(appUrl);
+  await page.locator("#outputButton").click();
+
+  await expect(page.locator("#previewSurface")).toHaveCSS("width", "960px");
+  await expect(page.locator("#previewSurface")).toHaveCSS("height", "720px");
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "true");
+
+  await page.locator("#lightModeButton").click();
+  await expect(page.locator("#stage")).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  await expect(page.locator("#previewSurface")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});
+
+test("changing line spacing preserves the current scroll progress", async ({ page }) => {
+  await page.goto(appUrl);
+
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").fill(Array.from({ length: 100 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  await page.locator("#lineRange").fill("120");
+  await page.locator("#browseRange").fill("75");
+  await expect(page.locator("#browseValue")).toHaveText("75%");
+
+  await page.locator("#lineRange").fill("64");
+  await expect(page.locator("#browseValue")).toHaveText("75%");
 });

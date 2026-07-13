@@ -46,7 +46,7 @@
       grid-template-rows: minmax(0, 1fr) var(--control-height, clamp(92px, 12vh, 112px));
       width: 100vw;
       height: 100vh;
-      background: var(--prompter-bg, #020303);
+      background: #000;
     }
 
     .app.fullscreen-mode {
@@ -78,6 +78,10 @@
       display: none;
     }
 
+    body.output-mode .stage {
+      background: var(--prompter-bg, #020303);
+    }
+
     .stage {
       position: relative;
       min-width: 0;
@@ -86,7 +90,7 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      background: var(--prompter-bg, #020303);
+      background: #000;
       color: var(--prompter-text, #fff);
       box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05);
     }
@@ -94,8 +98,8 @@
     .preview-surface {
       position: relative;
       flex: 0 0 auto;
-      width: 1280px;
-      height: 720px;
+      width: var(--preview-base-width, 1280px);
+      height: var(--preview-base-height, 720px);
       overflow: hidden;
       background: var(--prompter-bg, #020303);
       color: var(--prompter-text, #fff);
@@ -851,9 +855,73 @@
         grid-template-rows: auto minmax(150px, 32vh) auto;
       }
     }
+
+    /* 网页预览版（非桌面端，无原生桥）：隐藏第二屏输出按钮、显示顶部提示条 */
+    .web-banner {
+      display: none;
+    }
+
+    body.web-preview .web-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 6px 12px;
+      color: var(--muted);
+      background: rgba(7, 11, 15, .92);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    body.web-preview .web-banner a {
+      color: var(--accent-2);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    body.web-preview .web-banner a:hover {
+      text-decoration: underline;
+    }
+
+    body.web-preview .web-banner .dot-sep {
+      color: var(--line);
+    }
+
+    /* 预留顶部空间，避免 banner 遮挡提词画面 */
+    body.web-preview .app {
+      padding-top: 30px;
+    }
+
+    /* 浏览器无法跨窗口输出第二屏，直接隐藏该按钮 */
+    body.web-preview .button.output-button {
+      display: none;
+    }
+
+    @media (max-width: 720px) {
+      body.web-preview .app {
+        padding-top: 34px;
+      }
+
+      body.web-preview .web-banner {
+        font-size: 11px;
+        gap: 6px;
+      }
+    }
   </style>
 </head>
 <body>
+  <div class="web-banner" id="webBanner" aria-hidden="true">
+    <span>网页预览版（仅单屏）</span>
+    <span class="dot-sep">·</span>
+    <a href="https://github.com/BeetMan/teleprompter" target="_blank" rel="noopener">下载桌面版支持双屏输出</a>
+  </div>
   <div class="app">
     <main class="stage" id="stage" tabindex="0" aria-label="提词器预览">
       <div class="preview-surface" id="previewSurface">
@@ -1118,9 +1186,10 @@
     const isOutputMode = params.get("mode") === "output";
     let applyingRemoteState = false;
     let lastPublishedAt = 0;
+    let resizeFrame = 0;
     let outputActive = false;
-    const previewBaseWidth = 1280;
-    const previewBaseHeight = 720;
+    let previewBaseWidth = 1280;
+    let previewBaseHeight = 720;
 
     if (isOutputMode) {
       document.body.classList.add("output-mode");
@@ -1143,6 +1212,16 @@
           tauriListen?.("output-window-status", (event) => callback(event.payload));
         },
       };
+    }
+
+    // 非桌面壳环境（普通浏览器）：标记为网页预览版，
+    // 启用顶部提示条并隐藏依赖原生第二屏窗口的功能。
+    if (!window.teleprompterBridge && !window.webkit?.messageHandlers?.nativeFullscreen) {
+      document.body.classList.add("web-preview");
+      const banner = document.getElementById("webBanner");
+      if (banner) {
+        banner.setAttribute("aria-hidden", "false");
+      }
     }
 
     const defaultState = {
@@ -1209,21 +1288,56 @@
       }
     }
 
-    function resizePreviewSurface(preserveProgress = true) {
+    function resizePreviewSurface(preserveProgress = true, preservedProgress = null, immediate = false) {
       if (!elements.previewSurface) {
         return;
       }
-      const progress = preserveProgress ? getScrollProgress() : 0;
+      const progress = preserveProgress
+        ? (Number.isFinite(preservedProgress) ? preservedProgress : getScrollProgress())
+        : 0;
       const rect = elements.stage.getBoundingClientRect();
       const scale = Math.min(rect.width / previewBaseWidth, rect.height / previewBaseHeight);
       elements.previewSurface.style.setProperty("--preview-scale", Math.max(0.01, scale));
-      requestAnimationFrame(() => {
+      const applyProgress = () => {
+        resizeFrame = 0;
         if (preserveProgress) {
           setScrollY(getScrollYFromProgress(progress));
         } else {
           updateProgress();
         }
-      });
+      };
+
+      if (resizeFrame) {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = 0;
+      }
+      if (immediate) {
+        applyProgress();
+      } else {
+        resizeFrame = requestAnimationFrame(applyProgress);
+      }
+    }
+
+    function setPreviewBaseSize(width, height, preserveProgress = true) {
+      const numericWidth = Number(width);
+      const numericHeight = Number(height);
+      if (!Number.isFinite(numericWidth) || !Number.isFinite(numericHeight) || numericWidth <= 0 || numericHeight <= 0) {
+        return;
+      }
+
+      const nextHeight = 720;
+      const nextWidth = Math.max(1, Math.round(nextHeight * numericWidth / numericHeight));
+      if (nextWidth === previewBaseWidth && nextHeight === previewBaseHeight) {
+        resizePreviewSurface(preserveProgress);
+        return;
+      }
+
+      const progress = preserveProgress ? getScrollProgress() : 0;
+      previewBaseWidth = nextWidth;
+      previewBaseHeight = nextHeight;
+      elements.previewSurface.style.setProperty("--preview-base-width", `${previewBaseWidth}px`);
+      elements.previewSurface.style.setProperty("--preview-base-height", `${previewBaseHeight}px`);
+      resizePreviewSurface(preserveProgress, progress);
     }
 
     function saveState() {
@@ -1277,6 +1391,13 @@
       publishState(true);
     }
 
+    function applyOutputStatus(status) {
+      if (status?.outputWidth && status?.outputHeight) {
+        setPreviewBaseSize(status.outputWidth, status.outputHeight, true);
+      }
+      setOutputActive(Boolean(status?.opened));
+    }
+
     function updateMirrorNote() {
       if (!elements.mirrorNote) {
         return;
@@ -1322,7 +1443,9 @@
         progress: getScrollProgress(),
         playing,
         mirrorX: mirrorX === -1,
-        mirrorY: mirrorY === -1
+        mirrorY: mirrorY === -1,
+        previewWidth: previewBaseWidth,
+        previewHeight: previewBaseHeight
       };
     }
 
@@ -1346,6 +1469,7 @@
         return;
       }
       applyingRemoteState = true;
+      setPreviewBaseSize(state.previewWidth, state.previewHeight, false);
       elements.input.value = state.text ?? "";
       elements.speedRange.value = state.speed ?? defaultState.speed;
       elements.sizeRange.value = state.size ?? defaultState.size;
@@ -1393,6 +1517,7 @@
     }
 
     function applyControls() {
+      const preservedProgress = getScrollProgress();
       const fontSize = Number(elements.sizeRange.value);
       const lineMin = Math.max(Number(elements.sizeRange.min) || 28, Math.round(fontSize));
       const lineMax = Number(elements.lineRange.max) || 180;
@@ -1428,7 +1553,7 @@
       elements.browseRange?.classList.toggle("mirrored-order", isBrowseProgressMirrored());
       setDisplayMode(displayMode);
       updateMirrorNote();
-      resizePreviewSurface(true);
+      resizePreviewSurface(true, preservedProgress, true);
       requestAnimationFrame(updateProgress);
       saveState();
       publishState(true);
@@ -1670,7 +1795,7 @@
         return;
       }
       const result = await window.teleprompterBridge.toggleOutputWindow();
-      setOutputActive(Boolean(result?.opened));
+      applyOutputStatus(result);
       window.setTimeout(() => publishState(true), 220);
     }
 
@@ -2043,7 +2168,7 @@
 
     hydrate();
     window.teleprompterBridge?.onState?.(applyRemoteState);
-    window.teleprompterBridge?.onOutputStatus?.((state) => setOutputActive(Boolean(state?.opened)));
+    window.teleprompterBridge?.onOutputStatus?.(applyOutputStatus);
     if (isOutputMode) {
       window.teleprompterBridge?.outputWindowReady?.();
     }

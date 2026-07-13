@@ -13,10 +13,12 @@ struct AppState {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct OutputWindowStatus {
     opened: bool,
-    #[serde(rename = "displayCount")]
     display_count: usize,
+    output_width: Option<u32>,
+    output_height: Option<u32>,
 }
 
 fn display_count(window: &WebviewWindow) -> usize {
@@ -28,14 +30,19 @@ fn main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .ok_or_else(|| "主窗口不可用".to_string())
 }
 
-fn emit_output_status(app: &AppHandle, opened: bool, display_count: usize) -> Result<(), String> {
-    let status = OutputWindowStatus {
-        opened,
-        display_count,
-    };
+fn emit_output_status(app: &AppHandle, status: &OutputWindowStatus) -> Result<(), String> {
     main_window(app)?
-        .emit("output-window-status", &status)
+        .emit("output-window-status", status)
         .map_err(|error| error.to_string())
+}
+
+fn current_monitor_size(window: &WebviewWindow) -> (Option<u32>, Option<u32>) {
+    window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| (Some(monitor.size().width), Some(monitor.size().height)))
+        .unwrap_or((None, None))
 }
 
 fn output_window(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -52,6 +59,7 @@ fn toggle_output_window(
     let output_window = output_window(&app)?;
 
     if output_window.is_visible().unwrap_or(false) {
+        let (output_width, output_height) = current_monitor_size(&output_window);
         output_window
             .set_fullscreen(false)
             .map_err(|error| error.to_string())?;
@@ -59,8 +67,10 @@ fn toggle_output_window(
         let status = OutputWindowStatus {
             opened: false,
             display_count: display_count(&main_window),
+            output_width,
+            output_height,
         };
-        emit_output_status(&app, false, status.display_count)?;
+        emit_output_status(&app, &status)?;
         return Ok(status);
     }
 
@@ -110,16 +120,21 @@ fn toggle_output_window(
     let status = OutputWindowStatus {
         opened: true,
         display_count: monitors.len(),
+        output_width: Some(size.width),
+        output_height: Some(size.height),
     };
-    emit_output_status(&app, true, status.display_count)?;
+    emit_output_status(&app, &status)?;
     Ok(status)
 }
 
 #[tauri::command]
 fn close_output_window(app: AppHandle) -> Result<OutputWindowStatus, String> {
     let display_count = main_window(&app).map(|window| display_count(&window)).unwrap_or(1);
+    let mut output_width = None;
+    let mut output_height = None;
 
     if let Ok(output_window) = output_window(&app) {
+        (output_width, output_height) = current_monitor_size(&output_window);
         output_window
             .set_fullscreen(false)
             .map_err(|error| error.to_string())?;
@@ -129,8 +144,10 @@ fn close_output_window(app: AppHandle) -> Result<OutputWindowStatus, String> {
     let status = OutputWindowStatus {
         opened: false,
         display_count,
+        output_width,
+        output_height,
     };
-    emit_output_status(&app, false, status.display_count)?;
+    emit_output_status(&app, &status)?;
     Ok(status)
 }
 
@@ -149,7 +166,14 @@ fn output_window_ready(app: AppHandle, app_state: State<AppState>) -> Result<(),
         }
         let visible = output_window.is_visible().unwrap_or(false);
         let count = display_count(&output_window);
-        emit_output_status(&app, visible, count)?;
+        let (output_width, output_height) = current_monitor_size(&output_window);
+        let status = OutputWindowStatus {
+            opened: visible,
+            display_count: count,
+            output_width,
+            output_height,
+        };
+        emit_output_status(&app, &status)?;
     }
 
     Ok(())

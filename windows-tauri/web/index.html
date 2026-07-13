@@ -46,7 +46,7 @@
       grid-template-rows: minmax(0, 1fr) var(--control-height, clamp(92px, 12vh, 112px));
       width: 100vw;
       height: 100vh;
-      background: var(--prompter-bg, #020303);
+      background: #000;
     }
 
     .app.fullscreen-mode {
@@ -78,6 +78,10 @@
       display: none;
     }
 
+    body.output-mode .stage {
+      background: var(--prompter-bg, #020303);
+    }
+
     .stage {
       position: relative;
       min-width: 0;
@@ -86,7 +90,7 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      background: var(--prompter-bg, #020303);
+      background: #000;
       color: var(--prompter-text, #fff);
       box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05);
     }
@@ -94,8 +98,8 @@
     .preview-surface {
       position: relative;
       flex: 0 0 auto;
-      width: 1280px;
-      height: 720px;
+      width: var(--preview-base-width, 1280px);
+      height: var(--preview-base-height, 720px);
       overflow: hidden;
       background: var(--prompter-bg, #020303);
       color: var(--prompter-text, #fff);
@@ -1182,9 +1186,10 @@
     const isOutputMode = params.get("mode") === "output";
     let applyingRemoteState = false;
     let lastPublishedAt = 0;
+    let resizeFrame = 0;
     let outputActive = false;
-    const previewBaseWidth = 1280;
-    const previewBaseHeight = 720;
+    let previewBaseWidth = 1280;
+    let previewBaseHeight = 720;
 
     if (isOutputMode) {
       document.body.classList.add("output-mode");
@@ -1283,21 +1288,56 @@
       }
     }
 
-    function resizePreviewSurface(preserveProgress = true) {
+    function resizePreviewSurface(preserveProgress = true, preservedProgress = null, immediate = false) {
       if (!elements.previewSurface) {
         return;
       }
-      const progress = preserveProgress ? getScrollProgress() : 0;
+      const progress = preserveProgress
+        ? (Number.isFinite(preservedProgress) ? preservedProgress : getScrollProgress())
+        : 0;
       const rect = elements.stage.getBoundingClientRect();
       const scale = Math.min(rect.width / previewBaseWidth, rect.height / previewBaseHeight);
       elements.previewSurface.style.setProperty("--preview-scale", Math.max(0.01, scale));
-      requestAnimationFrame(() => {
+      const applyProgress = () => {
+        resizeFrame = 0;
         if (preserveProgress) {
           setScrollY(getScrollYFromProgress(progress));
         } else {
           updateProgress();
         }
-      });
+      };
+
+      if (resizeFrame) {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = 0;
+      }
+      if (immediate) {
+        applyProgress();
+      } else {
+        resizeFrame = requestAnimationFrame(applyProgress);
+      }
+    }
+
+    function setPreviewBaseSize(width, height, preserveProgress = true) {
+      const numericWidth = Number(width);
+      const numericHeight = Number(height);
+      if (!Number.isFinite(numericWidth) || !Number.isFinite(numericHeight) || numericWidth <= 0 || numericHeight <= 0) {
+        return;
+      }
+
+      const nextHeight = 720;
+      const nextWidth = Math.max(1, Math.round(nextHeight * numericWidth / numericHeight));
+      if (nextWidth === previewBaseWidth && nextHeight === previewBaseHeight) {
+        resizePreviewSurface(preserveProgress);
+        return;
+      }
+
+      const progress = preserveProgress ? getScrollProgress() : 0;
+      previewBaseWidth = nextWidth;
+      previewBaseHeight = nextHeight;
+      elements.previewSurface.style.setProperty("--preview-base-width", `${previewBaseWidth}px`);
+      elements.previewSurface.style.setProperty("--preview-base-height", `${previewBaseHeight}px`);
+      resizePreviewSurface(preserveProgress, progress);
     }
 
     function saveState() {
@@ -1351,6 +1391,13 @@
       publishState(true);
     }
 
+    function applyOutputStatus(status) {
+      if (status?.outputWidth && status?.outputHeight) {
+        setPreviewBaseSize(status.outputWidth, status.outputHeight, true);
+      }
+      setOutputActive(Boolean(status?.opened));
+    }
+
     function updateMirrorNote() {
       if (!elements.mirrorNote) {
         return;
@@ -1396,7 +1443,9 @@
         progress: getScrollProgress(),
         playing,
         mirrorX: mirrorX === -1,
-        mirrorY: mirrorY === -1
+        mirrorY: mirrorY === -1,
+        previewWidth: previewBaseWidth,
+        previewHeight: previewBaseHeight
       };
     }
 
@@ -1420,6 +1469,7 @@
         return;
       }
       applyingRemoteState = true;
+      setPreviewBaseSize(state.previewWidth, state.previewHeight, false);
       elements.input.value = state.text ?? "";
       elements.speedRange.value = state.speed ?? defaultState.speed;
       elements.sizeRange.value = state.size ?? defaultState.size;
@@ -1467,6 +1517,7 @@
     }
 
     function applyControls() {
+      const preservedProgress = getScrollProgress();
       const fontSize = Number(elements.sizeRange.value);
       const lineMin = Math.max(Number(elements.sizeRange.min) || 28, Math.round(fontSize));
       const lineMax = Number(elements.lineRange.max) || 180;
@@ -1502,7 +1553,7 @@
       elements.browseRange?.classList.toggle("mirrored-order", isBrowseProgressMirrored());
       setDisplayMode(displayMode);
       updateMirrorNote();
-      resizePreviewSurface(true);
+      resizePreviewSurface(true, preservedProgress, true);
       requestAnimationFrame(updateProgress);
       saveState();
       publishState(true);
@@ -1744,7 +1795,7 @@
         return;
       }
       const result = await window.teleprompterBridge.toggleOutputWindow();
-      setOutputActive(Boolean(result?.opened));
+      applyOutputStatus(result);
       window.setTimeout(() => publishState(true), 220);
     }
 
@@ -2117,7 +2168,7 @@
 
     hydrate();
     window.teleprompterBridge?.onState?.(applyRemoteState);
-    window.teleprompterBridge?.onOutputStatus?.((state) => setOutputActive(Boolean(state?.opened)));
+    window.teleprompterBridge?.onOutputStatus?.(applyOutputStatus);
     if (isOutputMode) {
       window.teleprompterBridge?.outputWindowReady?.();
     }
