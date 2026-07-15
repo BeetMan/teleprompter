@@ -10,8 +10,22 @@ foreach ($path in @($tauriIndex, $electronIndex)) {
   }
 }
 
-$tauriHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $tauriIndex).Hash
-$electronHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $electronIndex).Hash
+function Get-Sha256Hex([string] $path) {
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [System.IO.File]::OpenRead($path)
+    try {
+      return (($sha256.ComputeHash($stream) | ForEach-Object { $_.ToString('X2') }) -join '')
+    } finally {
+      $stream.Dispose()
+    }
+  } finally {
+    $sha256.Dispose()
+  }
+}
+
+$tauriHash = Get-Sha256Hex $tauriIndex
+$electronHash = Get-Sha256Hex $electronIndex
 
 if ($tauriHash -ne $electronHash) {
   throw "Frontend drift detected. windows-tauri/web/index.html and windows-electron/index.html must stay identical."
