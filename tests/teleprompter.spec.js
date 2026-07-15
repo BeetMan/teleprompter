@@ -81,3 +81,45 @@ test("changing line spacing preserves the current scroll progress", async ({ pag
   await page.locator("#lineRange").fill("64");
   await expect(page.locator("#browseValue")).toHaveText("75%");
 });
+
+test("importing a dropped file publishes the final text and reset position", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__states = [];
+    window.teleprompterBridge = {
+      sendState: (state) => window.__states.push(state),
+      onState: () => {},
+      onOutputStatus: () => {},
+    };
+  });
+
+  await page.goto(appUrl);
+  await page.locator("#fileInput").setInputFiles({
+    name: "second.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("second document\nwith two lines", "utf8"),
+  });
+
+  await expect(page.locator("#scriptText")).toContainText("second document");
+  await expect.poll(() => page.evaluate(() => window.__states.some((state) => state.text === "second document\nwith two lines"))).toBe(true);
+});
+
+test("output mode ignores playback keys and only handles Escape", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__closeCalls = 0;
+    window.teleprompterBridge = {
+      closeOutputWindow: () => {
+        window.__closeCalls += 1;
+        return Promise.resolve({ opened: false });
+      },
+      onState: () => {},
+      onOutputStatus: () => {},
+    };
+  });
+
+  await page.goto(`${appUrl}?mode=output`);
+  await expect(page.locator("#playButton")).toHaveClass(/primary/);
+  await page.keyboard.press("Space");
+  await expect(page.locator("#playButton")).toHaveClass(/primary/);
+  await page.keyboard.press("Escape");
+  await expect.poll(() => page.evaluate(() => window.__closeCalls)).toBe(1);
+});

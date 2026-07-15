@@ -64,6 +64,9 @@ fn toggle_output_window(
             .set_fullscreen(false)
             .map_err(|error| error.to_string())?;
         output_window.hide().map_err(|error| error.to_string())?;
+        main_window
+            .set_focus()
+            .map_err(|error| error.to_string())?;
         let status = OutputWindowStatus {
             opened: false,
             display_count: display_count(&main_window),
@@ -107,6 +110,9 @@ fn toggle_output_window(
     output_window
         .set_fullscreen(true)
         .map_err(|error| error.to_string())?;
+    main_window
+        .set_focus()
+        .map_err(|error| error.to_string())?;
 
     if let Some(last_state) = app_state
         .last_state
@@ -139,6 +145,12 @@ fn close_output_window(app: AppHandle) -> Result<OutputWindowStatus, String> {
             .set_fullscreen(false)
             .map_err(|error| error.to_string())?;
         output_window.hide().map_err(|error| error.to_string())?;
+    }
+
+    if let Ok(main_window) = main_window(&app) {
+        main_window
+            .set_focus()
+            .map_err(|error| error.to_string())?;
     }
 
     let status = OutputWindowStatus {

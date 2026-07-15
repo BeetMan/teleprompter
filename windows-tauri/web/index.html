@@ -1796,7 +1796,15 @@
       }
       const result = await window.teleprompterBridge.toggleOutputWindow();
       applyOutputStatus(result);
-      window.setTimeout(() => publishState(true), 220);
+      if (!isOutputMode) {
+        elements.stage.focus({ preventScroll: true });
+      }
+      window.setTimeout(() => {
+        if (!isOutputMode) {
+          elements.stage.focus({ preventScroll: true });
+        }
+        publishState(true);
+      }, 220);
     }
 
     function startResize(event) {
@@ -1932,7 +1940,7 @@
     }
 
     async function importFile(file) {
-      if (!file) {
+      if (!file || isOutputMode) {
         return;
       }
       elements.saveStatus.textContent = `正在读取 ${file.name}`;
@@ -1942,6 +1950,9 @@
         elements.input.value = normalizeImportedText(text);
         updateText();
         resetScroll();
+        // Publish after the scroll reset so the output window receives the new text and its matching position together.
+        publishState(true);
+        window.requestAnimationFrame(() => publishState(true));
         elements.saveStatus.textContent = `已读取 ${file.name}`;
       } catch (error) {
         elements.saveStatus.textContent = error.message || "读取失败";
@@ -1988,7 +1999,7 @@
     }
 
     function handleDrop(event) {
-      if (!hasDraggedFile(event)) {
+      if (isOutputMode || !hasDraggedFile(event)) {
         return;
       }
       event.preventDefault();
@@ -2129,6 +2140,13 @@
       setFullscreenMode(Boolean(document.fullscreenElement));
     });
     window.addEventListener("keydown", (event) => {
+      if (isOutputMode) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          window.teleprompterBridge?.closeOutputWindow?.();
+        }
+        return;
+      }
       const editing = document.activeElement === elements.input;
       if (event.code === "Space" && !editing) {
         event.preventDefault();
@@ -2153,10 +2171,7 @@
         const direction = event.key === "ArrowRight" ? 1 : -1;
         nudgeSpeedByKeyboard(direction, event.shiftKey);
       }
-      if (event.key === "Escape" && isOutputMode) {
-        event.preventDefault();
-        window.teleprompterBridge?.closeOutputWindow?.();
-      } else if (event.key === "Escape" && playing) {
+      if (event.key === "Escape" && playing) {
         setPlaying(false);
       }
     });

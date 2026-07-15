@@ -30,6 +30,7 @@ function createWindow() {
     if (outputWindow && !outputWindow.isDestroyed()) {
       outputWindow.close();
     }
+    outputWindow = null;
   });
 }
 
@@ -88,6 +89,7 @@ function createOutputWindow() {
   outputWindow.on("closed", () => {
     outputWindow = null;
     mainWindow?.webContents.send("output-window-status", getOutputStatus(false));
+    mainWindow?.focus();
   });
 
   const status = getOutputStatus(true);
@@ -100,6 +102,7 @@ function closeOutputWindow() {
     outputWindow.close();
   }
   outputWindow = null;
+  mainWindow?.focus();
   const status = getOutputStatus(false);
   mainWindow?.webContents.send("output-window-status", status);
   return status;

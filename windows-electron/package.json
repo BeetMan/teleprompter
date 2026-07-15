@@ -1,7 +1,7 @@
 {
   "name": "teleprompter",
   "productName": "提词器",
-  "version": "6.1.2",
+  "version": "6.1.3",
   "description": "A desktop teleprompter app.",
   "main": "main.js",
   "private": true,
