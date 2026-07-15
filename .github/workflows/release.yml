@@ -1,0 +1,130 @@
+name: Build And Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            windows-electron/package-lock.json
+            windows-tauri/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw -Encoding UTF8 VERSION).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "VERSION must use semantic versioning: $version"
+          }
+          if ($env:GITHUB_REF -like 'refs/tags/*' -and "v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME does not match VERSION $version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run project checks
+        run: npm run check
+
+      - name: Install Electron dependencies
+        working-directory: windows-electron
+        run: npm ci
+
+      # Build the unpacked directory once, then package it twice. This avoids
+      # repeating the Electron application packaging work for each target.
+      - name: Build Electron application directory
+        working-directory: windows-electron
+        run: npx electron-builder --win dir --x64 --config.win.signAndEditExecutable=false
+
+      - name: Build Electron portable package
+        working-directory: windows-electron
+        run: npx electron-builder --win portable --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/portable-${{ steps.version.outputs.version }}
+
+      - name: Build Electron installer
+        working-directory: windows-electron
+        run: npx electron-builder --win nsis --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/nsis-${{ steps.version.outputs.version }}
+
+      - name: Install Tauri dependencies
+        working-directory: windows-tauri
+        run: npm ci
+
+      - name: Build Tauri installer
+        working-directory: windows-tauri
+        run: npm run build
+
+      - name: Collect release files
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE 'release-assets'
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+
+          function Copy-SingleExe([string] $directory, [string] $destination) {
+            $file = Get-ChildItem -Path $directory -Filter '*.exe' -File | Select-Object -First 1
+            if (-not $file) {
+              throw "No executable found in $directory"
+            }
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $assetDir $destination)
+          }
+
+          Copy-SingleExe "windows-electron/dist/portable-$env:VERSION" "Teleprompter-Electron-$env:VERSION-Portable.exe"
+          Copy-SingleExe "windows-electron/dist/nsis-$env:VERSION" "Teleprompter-Electron-$env:VERSION-Setup.exe"
+          Copy-SingleExe 'windows-tauri/src-tauri/target/release/bundle/nsis' "Teleprompter-Tauri-$env:VERSION-Setup.exe"
+
+          $checksums = foreach ($file in Get-ChildItem -Path $assetDir -Filter '*.exe' -File | Sort-Object Name) {
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            "$hash  $($file.Name)"
+          }
+          Set-Content -LiteralPath (Join-Path $assetDir 'SHA256SUMS.txt') -Value $checksums -Encoding ascii
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: teleprompter-${{ steps.version.outputs.version }}-windows
+          path: release-assets/
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 提词器 ${{ github.ref_name }}
+          body: |
+            ## 更新内容
+
+            本版本由 GitHub Actions 自动构建并发布。
+
+            - Tauri Windows 安装版
+            - Electron Windows 便携版
+            - Electron Windows 安装版
+            - `SHA256SUMS.txt` 文件校验清单
+
+            > 当前发布包尚未配置 Windows 代码签名证书，部分设备可能显示 Smart App Control 或 SmartScreen 警告。正式分发前请核对 SHA256 校验值，并在后续版本接入代码签名。
+          files: |
+            release-assets/*.exe
+            release-assets/SHA256SUMS.txt
