@@ -256,9 +256,14 @@
       transform: translateX(-50%) scaleX(var(--mirror-x, 1)) scaleY(var(--mirror-y, 1));
     }
 
-    body.output-mode .output-remaining {
-      display: block;
-    }
+      body.output-mode .output-remaining {
+        display: block;
+      }
+
+      body.output-mode .output-remaining.mirrored-y {
+        top: auto;
+        bottom: 18px;
+      }
 
     body.display-light .output-remaining {
       border-color: rgba(0, 0, 0, .16);
@@ -1548,6 +1553,7 @@
       elements.text.style.setProperty("--mirror-y", getScreenMirrorY());
       elements.outputRemaining?.style.setProperty("--mirror-x", getScreenMirrorX());
       elements.outputRemaining?.style.setProperty("--mirror-y", getScreenMirrorY());
+      elements.outputRemaining?.classList.toggle("mirrored-y", getScreenMirrorY() === -1);
       elements.mirrorXButton.setAttribute("aria-pressed", String(mirrorX === -1));
       elements.mirrorYButton.setAttribute("aria-pressed", String(mirrorY === -1));
       elements.browseRange?.classList.toggle("mirrored-order", isBrowseProgressMirrored());

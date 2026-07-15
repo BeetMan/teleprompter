@@ -41,6 +41,17 @@ test("output mode hides controls and keeps teleprompter indicators", async ({ pa
   await expect(page.locator("#scriptText")).toBeVisible();
 });
 
+test("vertical mirror moves the remaining indicator to the opposite edge", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("local-teleprompter-state-v2", JSON.stringify({ mirrorY: true }));
+  });
+
+  await page.goto(`${appUrl}?mode=output`);
+
+  await expect(page.locator("#outputRemaining")).toHaveClass(/mirrored-y/);
+  await expect(page.locator("#outputRemaining")).toHaveCSS("bottom", "18px");
+});
+
 test("secondary display aspect ratio drives both output and main preview layout", async ({ page }) => {
   await page.addInitScript(() => {
     window.teleprompterBridge = {
