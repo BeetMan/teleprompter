@@ -3,7 +3,30 @@ const { app, BrowserWindow, ipcMain, screen } = require("electron");
 
 let mainWindow;
 let outputWindow;
-let lastTeleprompterState = null;
+let lastTeleprompterSnapshot = null;
+let lastTeleprompterPlayback = null;
+
+function cacheTeleprompterState(message) {
+  if (message?.kind === "snapshot") {
+    lastTeleprompterSnapshot = message;
+  } else if (message?.kind === "playback") {
+    lastTeleprompterPlayback = message;
+  } else if (message) {
+    lastTeleprompterSnapshot = message;
+  }
+}
+
+function sendCachedTeleprompterState(window) {
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+  if (lastTeleprompterSnapshot) {
+    window.webContents.send("teleprompter-state", lastTeleprompterSnapshot);
+  }
+  if (lastTeleprompterPlayback) {
+    window.webContents.send("teleprompter-state", lastTeleprompterPlayback);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -81,9 +104,7 @@ function createOutputWindow() {
   });
 
   outputWindow.webContents.once("did-finish-load", () => {
-    if (lastTeleprompterState) {
-      outputWindow.webContents.send("teleprompter-state", lastTeleprompterState);
-    }
+    sendCachedTeleprompterState(outputWindow);
   });
 
   outputWindow.on("closed", () => {
@@ -125,8 +146,11 @@ ipcMain.handle("toggle-output-window", () => toggleOutputWindow());
 
 ipcMain.handle("close-output-window", () => closeOutputWindow());
 
-ipcMain.on("teleprompter-state", (_event, state) => {
-  lastTeleprompterState = state;
+ipcMain.on("teleprompter-state", (event, state) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    return;
+  }
+  cacheTeleprompterState(state);
   if (outputWindow && !outputWindow.isDestroyed()) {
     outputWindow.webContents.send("teleprompter-state", state);
   }

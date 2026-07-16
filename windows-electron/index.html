@@ -1178,7 +1178,6 @@
     const storageKey = "local-teleprompter-state-v2";
     let scrollY = 0;
     let playing = false;
-    let lastFrame = performance.now();
     let mirrorX = 1;
     let mirrorY = 1;
     let displayMode = "dark";
@@ -1190,11 +1189,19 @@
     const params = new URLSearchParams(window.location.search);
     const isOutputMode = params.get("mode") === "output";
     let applyingRemoteState = false;
-    let lastPublishedAt = 0;
     let resizeFrame = 0;
     let outputActive = false;
     let previewBaseWidth = 1280;
     let previewBaseHeight = 720;
+    let snapshotRevision = 0;
+    let playbackRevision = 0;
+    const syncSessionId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    let lastSnapshotSignature = "";
+    let lastRemoteSessionId = "";
+    let lastRemoteSnapshotRevision = 0;
+    let lastRemotePlaybackRevision = 0;
+    let playbackAnchorProgress = 0;
+    let playbackAnchorAt = Date.now();
 
     if (isOutputMode) {
       document.body.classList.add("output-mode");
@@ -1432,10 +1439,9 @@
       elements.text.textContent = displayText;
     }
 
-    function getTeleprompterState() {
+    function getSnapshotState() {
       return {
         text: elements.input.value,
-        speed: Number(elements.speedRange.value),
         size: Number(elements.sizeRange.value),
         line: Number(elements.lineRange.value),
         lineMode: "lineBox",
@@ -1444,9 +1450,6 @@
         offset: Number(elements.offsetRange.value),
         guide: Number(elements.guideRange.value),
         displayMode,
-        scrollY,
-        progress: getScrollProgress(),
-        playing,
         mirrorX: mirrorX === -1,
         mirrorY: mirrorY === -1,
         previewWidth: previewBaseWidth,
@@ -1454,29 +1457,72 @@
       };
     }
 
+    function setPlaybackAnchor(progress = getScrollProgress(), anchorAt = Date.now()) {
+      playbackAnchorProgress = clamp(Number(progress) || 0, 0, 1);
+      playbackAnchorAt = Number.isFinite(Number(anchorAt)) ? Number(anchorAt) : Date.now();
+    }
+
+    function getPlaybackProgress(now = Date.now()) {
+      if (!playing) {
+        return playbackAnchorProgress;
+      }
+      const scrollDistance = Math.max(1, Math.abs(getEndScrollY() - getStartScrollY()));
+      const elapsedSeconds = Math.max(0, Number(now) - playbackAnchorAt) / 1000;
+      const speed = Number(elements.speedRange.value) || defaultState.speed;
+      return clamp(playbackAnchorProgress + speed * elapsedSeconds / scrollDistance, 0, 1);
+    }
+
+    function getPlaybackState(anchorAt = Date.now()) {
+      return {
+        progress: getScrollProgress(),
+        playing,
+        speed: Number(elements.speedRange.value),
+        anchorAt
+      };
+    }
+
     function publishState(force = false) {
       if (isOutputMode || applyingRemoteState || !window.teleprompterBridge?.sendState) {
         return;
       }
-      const now = performance.now();
+
+      const snapshot = getSnapshotState();
+      const snapshotSignature = JSON.stringify(snapshot);
+      if (snapshotSignature !== lastSnapshotSignature) {
+        lastSnapshotSignature = snapshotSignature;
+        snapshotRevision += 1;
+        window.teleprompterBridge.sendState({
+          kind: "snapshot",
+          protocolVersion: 1,
+          sessionId: syncSessionId,
+          revision: snapshotRevision,
+          state: snapshot
+        });
+      }
+
       if (playing && !force) {
         return;
       }
-      if (!force && now - lastPublishedAt < 33) {
-        return;
-      }
-      lastPublishedAt = now;
-      window.teleprompterBridge.sendState(getTeleprompterState());
+
+      const anchorAt = Date.now();
+      setPlaybackAnchor(getScrollProgress(), anchorAt);
+      playbackRevision += 1;
+      window.teleprompterBridge.sendState({
+        kind: "playback",
+        protocolVersion: 1,
+        sessionId: syncSessionId,
+        revision: playbackRevision,
+        state: getPlaybackState(anchorAt)
+      });
     }
 
-    function applyRemoteState(state) {
-      if (!isOutputMode || !state) {
+    function applyRemoteSnapshot(state) {
+      if (!state) {
         return;
       }
       applyingRemoteState = true;
       setPreviewBaseSize(state.previewWidth, state.previewHeight, false);
       elements.input.value = state.text ?? "";
-      elements.speedRange.value = state.speed ?? defaultState.speed;
       elements.sizeRange.value = state.size ?? defaultState.size;
       elements.lineRange.value = normalizeLineStep(state.line ?? defaultState.line, state.size ?? defaultState.size, state.lineMode);
       elements.spacingRange.value = state.spacing ?? defaultState.spacing;
@@ -1488,21 +1534,75 @@
       mirrorY = state.mirrorY ? -1 : 1;
       updateText();
       applyControls();
-      const nextPlaying = Boolean(state.playing);
-      if (!nextPlaying) {
-        setPlaying(false);
-      }
       requestAnimationFrame(() => {
-        if (typeof state.progress === "number") {
-          setScrollY(getScrollYFromProgress(state.progress));
-        } else {
-          const remoteScrollY = Number(state.scrollY) || 0;
-          setScrollY(mirrorY === -1 ? getMirroredScrollY(remoteScrollY) : remoteScrollY);
-        }
-        if (nextPlaying) {
-          setPlaying(true);
-        }
+        setScrollY(getScrollYFromProgress(getPlaybackProgress()), false);
         applyingRemoteState = false;
+      });
+    }
+
+    function updatePlayingUi() {
+      elements.playLabel.textContent = playing ? "暂停" : "开始";
+      elements.playIcon.innerHTML = playing
+        ? '<path d="M7 5h4v14H7z"></path><path d="M13 5h4v14h-4z"></path>'
+        : '<path d="M8 5v14l11-7z"></path>';
+      elements.playButton.classList.toggle("primary", !playing);
+    }
+
+    function applyRemotePlayback(state) {
+      if (!state) {
+        return;
+      }
+      applyingRemoteState = true;
+      const speed = clamp(Number(state.speed) || defaultState.speed, Number(elements.speedRange.min), Number(elements.speedRange.max));
+      elements.speedRange.value = String(speed);
+      elements.speedValue.textContent = String(speed);
+      playing = Boolean(state.playing);
+      setPlaybackAnchor(state.progress, state.anchorAt);
+      updatePlayingUi();
+      requestAnimationFrame(() => {
+        setScrollY(getScrollYFromProgress(getPlaybackProgress(Date.now())), false);
+        applyingRemoteState = false;
+      });
+    }
+
+    function applyRemoteState(message) {
+      if (!isOutputMode || !message) {
+        return;
+      }
+
+      if (message.sessionId && message.sessionId !== lastRemoteSessionId) {
+        lastRemoteSessionId = message.sessionId;
+        lastRemoteSnapshotRevision = 0;
+        lastRemotePlaybackRevision = 0;
+      }
+
+      if (message.kind === "snapshot") {
+        const revision = Number(message.revision) || 0;
+        if (revision && revision <= lastRemoteSnapshotRevision) {
+          return;
+        }
+        lastRemoteSnapshotRevision = revision || lastRemoteSnapshotRevision;
+        applyRemoteSnapshot(message.state);
+        return;
+      }
+
+      if (message.kind === "playback") {
+        const revision = Number(message.revision) || 0;
+        if (revision && revision <= lastRemotePlaybackRevision) {
+          return;
+        }
+        lastRemotePlaybackRevision = revision || lastRemotePlaybackRevision;
+        applyRemotePlayback(message.state);
+        return;
+      }
+
+      // Accept the pre-v1 full-state payload during rolling upgrades.
+      applyRemoteSnapshot(message);
+      applyRemotePlayback({
+        progress: typeof message.progress === "number" ? message.progress : 0,
+        playing: message.playing,
+        speed: message.speed,
+        anchorAt: Date.now()
       });
     }
 
@@ -1566,13 +1666,13 @@
     }
 
     function setPlaying(nextPlaying) {
-      playing = nextPlaying;
-      elements.playLabel.textContent = playing ? "暂停" : "开始";
-      elements.playIcon.innerHTML = playing
-        ? '<path d="M7 5h4v14H7z"></path><path d="M13 5h4v14h-4z"></path>'
-        : '<path d="M8 5v14l11-7z"></path>';
-      elements.playButton.classList.toggle("primary", !playing);
-      lastFrame = performance.now();
+      const now = Date.now();
+      if (playing) {
+        setScrollY(getScrollYFromProgress(getPlaybackProgress(now)), false);
+      }
+      playing = Boolean(nextPlaying);
+      setPlaybackAnchor(getScrollProgress(), now);
+      updatePlayingUi();
       publishState(true);
     }
 
@@ -1656,13 +1756,15 @@
       return isBrowseProgressMirrored() ? percent : 100 - percent;
     }
 
-    function setScrollY(value) {
+    function setScrollY(value, shouldPublish = true) {
       const start = getStartScrollY();
       const end = getEndScrollY();
       scrollY = clamp(value, Math.min(start, end), Math.max(start, end));
       elements.text.style.setProperty("--scroll-y", `${scrollY}px`);
       updateProgress();
-      publishState();
+      if (shouldPublish) {
+        publishState();
+      }
     }
 
     function resetScroll() {
@@ -1751,16 +1853,11 @@
       }
     }
 
-    function animate(now) {
-      const delta = Math.min(80, now - lastFrame);
-      lastFrame = now;
-
+    function animate() {
       if (playing) {
-        const pixelsPerSecond = Number(elements.speedRange.value);
-        const direction = getScreenMirrorY() === -1 ? 1 : -1;
-        const nextScrollY = scrollY + direction * (pixelsPerSecond * delta) / 1000;
-        setScrollY(nextScrollY);
-        if (scrollY === getEndScrollY()) {
+        const progress = getPlaybackProgress(Date.now());
+        setScrollY(getScrollYFromProgress(progress), false);
+        if (progress >= 1) {
           setPlaying(false);
         }
       }
@@ -2072,8 +2169,14 @@
       control.addEventListener("input", applyControls);
     });
     elements.playButton.addEventListener("click", () => setPlaying(!playing));
-    elements.resetButton.addEventListener("click", resetScroll);
-    elements.endButton.addEventListener("click", goToEnd);
+    elements.resetButton.addEventListener("click", () => {
+      resetScroll();
+      publishState(true);
+    });
+    elements.endButton.addEventListener("click", () => {
+      goToEnd();
+      publishState(true);
+    });
     elements.outputButton.addEventListener("click", toggleOutputWindow);
     elements.darkModeButton.addEventListener("click", () => {
       setDisplayMode("dark");
@@ -2161,6 +2264,7 @@
       if (event.key.toLowerCase() === "r" && !editing) {
         event.preventDefault();
         resetScroll();
+        publishState(true);
       }
       if (event.key.toLowerCase() === "f" && !editing) {
         event.preventDefault();
@@ -2185,6 +2289,7 @@
       event.preventDefault();
       const direction = getScreenMirrorY() === -1 ? 1 : -1;
       setScrollY(scrollY + direction * event.deltaY / getPreviewScale());
+      publishState(true);
     }, { passive: false });
 
     hydrate();

@@ -111,7 +111,104 @@ test("importing a dropped file publishes the final text and reset position", asy
   });
 
   await expect(page.locator("#scriptText")).toContainText("second document");
-  await expect.poll(() => page.evaluate(() => window.__states.some((state) => state.text === "second document\nwith two lines"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__states.some((message) => (
+    message.kind === "snapshot" && message.state?.text === "second document\nwith two lines"
+  )))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__states.some((message) => (
+    message.kind === "playback" && message.state?.progress === 0
+  )))).toBe(true);
+});
+
+test("sync protocol separates document snapshots from playback clocks", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__states = [];
+    window.teleprompterBridge = {
+      sendState: (state) => window.__states.push(state),
+      onState: () => {},
+      onOutputStatus: () => {},
+    };
+  });
+
+  await page.goto(appUrl);
+  await expect.poll(() => page.evaluate(() => window.__states.some((message) => message.kind === "snapshot"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__states.some((message) => message.kind === "playback"))).toBe(true);
+
+  await page.evaluate(() => { window.__states = []; });
+  await page.locator("#playButton").click();
+  await page.waitForTimeout(250);
+
+  const counts = await page.evaluate(() => ({
+    snapshots: window.__states.filter((message) => message.kind === "snapshot").length,
+    playbacks: window.__states.filter((message) => message.kind === "playback").length,
+    playing: window.__states.find((message) => message.kind === "playback")?.state?.playing,
+  }));
+  expect(counts.snapshots).toBe(0);
+  expect(counts.playbacks).toBe(1);
+  expect(counts.playing).toBe(true);
+});
+
+test("output applies ordered protocol messages and ignores stale playback revisions", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.teleprompterBridge = {
+      closeOutputWindow: () => Promise.resolve({ opened: false }),
+      outputWindowReady: () => Promise.resolve(),
+      onState: (callback) => { window.__receiveState = callback; },
+      onOutputStatus: () => {},
+    };
+  });
+
+  await page.goto(`${appUrl}?mode=output`);
+  await page.evaluate(() => {
+    window.__receiveState({
+      kind: "snapshot",
+      protocolVersion: 1,
+      sessionId: "session-a",
+      revision: 1,
+      state: {
+        text: Array.from({ length: 80 }, (_, index) => `协议测试第 ${index + 1} 行`).join("\n"),
+        size: 64,
+        line: 91,
+        lineMode: "lineBox",
+        spacing: 0,
+        width: 84,
+        offset: 0,
+        guide: 50,
+        displayMode: "dark",
+        mirrorX: true,
+        mirrorY: false,
+        previewWidth: 1280,
+        previewHeight: 720,
+      },
+    });
+    window.__receiveState({
+      kind: "playback",
+      protocolVersion: 1,
+      sessionId: "session-a",
+      revision: 2,
+      state: { progress: 0.6, playing: false, speed: 42, anchorAt: Date.now() },
+    });
+    window.__receiveState({
+      kind: "playback",
+      protocolVersion: 1,
+      sessionId: "session-a",
+      revision: 1,
+      state: { progress: 0.1, playing: false, speed: 42, anchorAt: Date.now() },
+    });
+  });
+
+  await expect(page.locator("#scriptText")).toContainText("协议测试第 80 行");
+  await expect.poll(() => page.locator("#progressValue").textContent()).toBe("60%");
+
+  await page.evaluate(() => {
+    window.__receiveState({
+      kind: "playback",
+      protocolVersion: 1,
+      sessionId: "session-b",
+      revision: 1,
+      state: { progress: 0.25, playing: false, speed: 42, anchorAt: Date.now() },
+    });
+  });
+  await expect.poll(() => page.locator("#progressValue").textContent()).toBe("25%");
 });
 
 test("output mode ignores playback keys and only handles Escape", async ({ page }) => {
