@@ -27,6 +27,10 @@ test("Electron output window can reopen and restore document and playback state"
     const mainWindow = await electronApp.firstWindow();
     await mainWindow.waitForLoadState("domcontentloaded");
     await expect(mainWindow.locator("#outputButton")).toBeVisible();
+    const outputStatus = await mainWindow.evaluate(() => window.teleprompterBridge.getOutputStatus());
+    expect(outputStatus.displays.length).toBeGreaterThan(0);
+    expect(outputStatus.selectedDisplayId).toBeTruthy();
+    expect(outputStatus.displays.some((display) => display.id === outputStatus.selectedDisplayId)).toBe(true);
 
     await mainWindow.locator("#outputButton").click();
     let outputWindow = await getOutputWindow(electronApp);

@@ -80,6 +80,72 @@ test("secondary display aspect ratio drives both output and main preview layout"
   await expect(page.locator("#previewSurface")).toHaveCSS("background-color", "rgb(255, 255, 255)");
 });
 
+test("desktop display picker remembers selection and handles disconnection", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__selectedDisplays = [];
+    const displays = [
+      { id: "primary", name: "内置屏幕", width: 1920, height: 1080, isPrimary: true },
+      { id: "secondary", name: "演示屏", width: 1024, height: 768, isPrimary: false },
+    ];
+    const statusFor = (displayId) => {
+      const display = displays.find((candidate) => candidate.id === displayId) || displays[1];
+      return {
+        opened: false,
+        displayCount: displays.length,
+        outputWidth: display.width,
+        outputHeight: display.height,
+        selectedDisplayId: display.id,
+        displays,
+      };
+    };
+    window.teleprompterBridge = {
+      getOutputStatus: async () => statusFor("secondary"),
+      selectOutputDisplay: async (displayId) => {
+        window.__selectedDisplays.push(displayId);
+        return statusFor(displayId);
+      },
+      toggleOutputWindow: async () => ({ ...statusFor("secondary"), opened: true }),
+      closeOutputWindow: async () => ({ ...statusFor("secondary"), opened: false }),
+      sendState: () => {},
+      onState: () => {},
+      onOutputStatus: (callback) => { window.__receiveOutputStatus = callback; },
+    };
+  });
+
+  await page.goto(appUrl);
+  await expect(page.locator("#outputDisplayPicker")).toBeVisible();
+  await expect(page.locator("#outputDisplaySelect option")).toHaveCount(2);
+  await expect(page.locator("#outputDisplaySelect")).toHaveValue("secondary");
+
+  await page.locator("#outputDisplaySelect").selectOption("primary");
+  await expect.poll(() => page.evaluate(() => window.__selectedDisplays.at(-1))).toBe("primary");
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem("local-teleprompter-state-v2")).outputDisplayId
+  ))).toBe("primary");
+
+  await page.locator("#outputDisplaySelect").selectOption("secondary");
+  await page.evaluate(() => {
+    window.__receiveOutputStatus({
+      opened: false,
+      displayCount: 1,
+      outputWidth: 1920,
+      outputHeight: 1080,
+      selectedDisplayId: "primary",
+      displays: [
+        { id: "primary", name: "内置屏幕", width: 1920, height: 1080, isPrimary: true },
+      ],
+      notice: "display-disconnected",
+    });
+  });
+
+  await expect(page.locator("#outputDisplayPicker")).toBeHidden();
+  await expect(page.locator("#statusToast")).toContainText("输出显示器已断开");
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem("local-teleprompter-state-v2")).outputDisplayId
+  ))).toBe("");
+});
+
 test("changing line spacing preserves the current scroll progress", async ({ page }) => {
   await page.goto(appUrl);
 

@@ -3,6 +3,9 @@ const { app, BrowserWindow, ipcMain, screen } = require("electron");
 
 let mainWindow;
 let outputWindow;
+let selectedDisplayId = null;
+let activeOutputDisplayId = null;
+let displayChangeTimer = null;
 let lastTeleprompterSnapshot = null;
 let lastTeleprompterPlayback = null;
 
@@ -57,29 +60,96 @@ function createWindow() {
   });
 }
 
-function getOutputDisplay() {
-  const displays = screen.getAllDisplays();
-  const primary = screen.getPrimaryDisplay();
-  return displays.find((display) => display.id !== primary.id) || primary;
+function getDisplayId(display) {
+  return String(display.id);
 }
 
-function getOutputStatus(opened) {
-  const display = getOutputDisplay();
+function getOutputDisplays() {
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  return displays.map((display, index) => ({
+    id: getDisplayId(display),
+    name: display.label?.trim() || `显示器 ${index + 1}`,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    isPrimary: display.id === primary.id,
+  }));
+}
+
+function getOutputDisplay(requestedDisplayId = selectedDisplayId || activeOutputDisplayId) {
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  const requested = requestedDisplayId == null ? null : String(requestedDisplayId);
+  return displays.find((display) => getDisplayId(display) === requested)
+    || displays.find((display) => display.id !== primary.id)
+    || primary;
+}
+
+function isOutputWindowOpen() {
+  return Boolean(outputWindow && !outputWindow.isDestroyed());
+}
+
+function getOutputStatus(opened = isOutputWindowOpen(), notice = null) {
+  const display = getOutputDisplay(opened ? activeOutputDisplayId : selectedDisplayId);
   return {
     opened,
     displayCount: screen.getAllDisplays().length,
     outputWidth: display.bounds.width,
     outputHeight: display.bounds.height,
+    selectedDisplayId: getDisplayId(display),
+    displays: getOutputDisplays(),
+    notice,
   };
 }
 
-function createOutputWindow() {
+function sendOutputStatus(notice = null) {
+  const status = getOutputStatus(isOutputWindowOpen(), notice);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("output-window-status", status);
+  }
+  return status;
+}
+
+function moveOutputWindowToDisplay(display) {
+  if (!isOutputWindowOpen()) {
+    return;
+  }
+  outputWindow.setFullScreen(false);
+  outputWindow.setBounds(display.bounds, false);
+  outputWindow.setFullScreen(true);
+  activeOutputDisplayId = getDisplayId(display);
+}
+
+function selectOutputDisplay(displayId) {
+  const requestedId = displayId == null ? "" : String(displayId);
+  const display = screen.getAllDisplays().find((candidate) => getDisplayId(candidate) === requestedId);
+  if (!display) {
+    selectedDisplayId = null;
+    return sendOutputStatus("display-unavailable");
+  }
+
+  selectedDisplayId = requestedId;
+  if (isOutputWindowOpen() && activeOutputDisplayId !== requestedId) {
+    moveOutputWindowToDisplay(display);
+    mainWindow?.focus();
+  }
+  return sendOutputStatus();
+}
+
+function createOutputWindow(requestedDisplayId) {
   if (outputWindow && !outputWindow.isDestroyed()) {
     outputWindow.focus();
     return getOutputStatus(true);
   }
 
+  if (requestedDisplayId != null) {
+    const requested = String(requestedDisplayId);
+    if (screen.getAllDisplays().some((display) => getDisplayId(display) === requested)) {
+      selectedDisplayId = requested;
+    }
+  }
   const display = getOutputDisplay();
+  activeOutputDisplayId = getDisplayId(display);
   outputWindow = new BrowserWindow({
     x: display.bounds.x,
     y: display.bounds.y,
@@ -102,38 +172,70 @@ function createOutputWindow() {
   outputWindow.loadFile(path.join(__dirname, "index.html"), {
     query: { mode: "output" },
   });
+  const createdOutputWindow = outputWindow;
 
-  outputWindow.webContents.once("did-finish-load", () => {
-    sendCachedTeleprompterState(outputWindow);
+  createdOutputWindow.webContents.once("did-finish-load", () => {
+    sendCachedTeleprompterState(createdOutputWindow);
   });
 
-  outputWindow.on("closed", () => {
+  createdOutputWindow.on("closed", () => {
+    if (outputWindow !== createdOutputWindow) {
+      return;
+    }
     outputWindow = null;
-    mainWindow?.webContents.send("output-window-status", getOutputStatus(false));
+    activeOutputDisplayId = null;
+    sendOutputStatus();
     mainWindow?.focus();
   });
 
-  const status = getOutputStatus(true);
-  mainWindow?.webContents.send("output-window-status", status);
-  return status;
+  return sendOutputStatus();
 }
 
 function closeOutputWindow() {
   if (outputWindow && !outputWindow.isDestroyed()) {
-    outputWindow.close();
+    const closingOutputWindow = outputWindow;
+    outputWindow = null;
+    activeOutputDisplayId = null;
+    closingOutputWindow.close();
   }
-  outputWindow = null;
   mainWindow?.focus();
-  const status = getOutputStatus(false);
-  mainWindow?.webContents.send("output-window-status", status);
-  return status;
+  return sendOutputStatus();
 }
 
-function toggleOutputWindow() {
+function toggleOutputWindow(displayId) {
   if (outputWindow && !outputWindow.isDestroyed()) {
     return closeOutputWindow();
   }
-  return createOutputWindow();
+  return createOutputWindow(displayId);
+}
+
+function handleDisplayConfigurationChange() {
+  clearTimeout(displayChangeTimer);
+  displayChangeTimer = setTimeout(() => {
+    const availableIds = new Set(screen.getAllDisplays().map(getDisplayId));
+    const outputDisconnected = activeOutputDisplayId && !availableIds.has(activeOutputDisplayId);
+    const selectionDisconnected = selectedDisplayId && !availableIds.has(selectedDisplayId);
+
+    if (selectionDisconnected) {
+      selectedDisplayId = null;
+    }
+    if (outputDisconnected && isOutputWindowOpen()) {
+      const disconnectedWindow = outputWindow;
+      outputWindow = null;
+      activeOutputDisplayId = null;
+      disconnectedWindow.close();
+      mainWindow?.focus();
+      sendOutputStatus("display-disconnected");
+      return;
+    }
+
+    if (isOutputWindowOpen()) {
+      const display = getOutputDisplay(activeOutputDisplayId);
+      moveOutputWindowToDisplay(display);
+      mainWindow?.focus();
+    }
+    sendOutputStatus(selectionDisconnected ? "display-disconnected" : null);
+  }, 120);
 }
 
 ipcMain.handle("toggle-fullscreen", () => {
@@ -142,9 +244,13 @@ ipcMain.handle("toggle-fullscreen", () => {
   }
 });
 
-ipcMain.handle("toggle-output-window", () => toggleOutputWindow());
+ipcMain.handle("toggle-output-window", (_event, displayId) => toggleOutputWindow(displayId));
 
 ipcMain.handle("close-output-window", () => closeOutputWindow());
+
+ipcMain.handle("get-output-status", () => getOutputStatus());
+
+ipcMain.handle("select-output-display", (_event, displayId) => selectOutputDisplay(displayId));
 
 ipcMain.on("teleprompter-state", (event, state) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
@@ -156,7 +262,12 @@ ipcMain.on("teleprompter-state", (event, state) => {
   }
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  screen.on("display-added", handleDisplayConfigurationChange);
+  screen.on("display-removed", handleDisplayConfigurationChange);
+  screen.on("display-metrics-changed", handleDisplayConfigurationChange);
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

@@ -9,8 +9,10 @@ contextBridge.exposeInMainWorld("webkit", {
 });
 
 contextBridge.exposeInMainWorld("teleprompterBridge", {
-  toggleOutputWindow: () => ipcRenderer.invoke("toggle-output-window"),
+  toggleOutputWindow: (displayId) => ipcRenderer.invoke("toggle-output-window", displayId),
   closeOutputWindow: () => ipcRenderer.invoke("close-output-window"),
+  getOutputStatus: () => ipcRenderer.invoke("get-output-status"),
+  selectOutputDisplay: (displayId) => ipcRenderer.invoke("select-output-display", displayId),
   sendState: (state) => ipcRenderer.send("teleprompter-state", state),
   onState: (callback) => {
     ipcRenderer.on("teleprompter-state", (_event, state) => callback(state));

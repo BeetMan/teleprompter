@@ -341,6 +341,46 @@
       line-height: 1;
     }
 
+    .playback-section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .output-display-picker {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 5px;
+      min-width: 0;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .output-display-picker[hidden] {
+      display: none;
+    }
+
+    .output-display-picker select {
+      min-width: 0;
+      width: min(180px, 18vw);
+      height: 24px;
+      padding: 0 24px 0 7px;
+      border: 1px solid rgba(128, 202, 255, .22);
+      border-radius: 5px;
+      color: var(--text);
+      background: #151b22;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .output-display-picker select:focus-visible {
+      outline: 2px solid rgba(128, 202, 255, .56);
+      outline-offset: 1px;
+    }
+
     .quick-controls,
     .display-actions {
       display: grid;
@@ -767,6 +807,31 @@
       transform: translate(-50%, 0);
     }
 
+    .status-toast {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      z-index: 90;
+      max-width: min(520px, calc(100vw - 28px));
+      padding: 9px 12px;
+      border: 1px solid rgba(128, 202, 255, .32);
+      border-radius: 6px;
+      color: #edf7ff;
+      background: rgba(7, 11, 15, .97);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .36);
+      font-size: 12px;
+      line-height: 1.35;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, -8px);
+      transition: opacity .16s ease, transform .16s ease;
+    }
+
+    .status-toast.visible {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
     kbd {
       padding: 2px 6px;
       border: 1px solid #404854;
@@ -904,8 +969,9 @@
       padding-top: 30px;
     }
 
-    /* 浏览器无法跨窗口输出第二屏，直接隐藏该按钮 */
-    body.web-preview .button.output-button {
+    /* 浏览器无法跨窗口输出第二屏，隐藏输出按钮和显示器选择器 */
+    body.web-preview .button.output-button,
+    body.web-preview .output-display-picker {
       display: none;
     }
 
@@ -958,7 +1024,13 @@
         <span class="sr-only" id="saveStatus" aria-live="polite">已自动保存</span>
 
         <div class="control-section">
-          <div class="section-title">播放</div>
+          <div class="section-title playback-section-title">
+            <span>播放</span>
+            <label class="output-display-picker" id="outputDisplayPicker" for="outputDisplaySelect" hidden>
+              <span>输出到</span>
+              <select id="outputDisplaySelect" aria-label="选择输出显示器"></select>
+            </label>
+          </div>
           <div class="quick-controls">
             <button class="button primary main-action" id="playButton" type="button">
               <svg class="icon" id="playIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -1114,6 +1186,7 @@
     </section>
     <div class="drop-zone" id="dropZone" aria-hidden="true">松开以读取稿件文件</div>
     <div class="floating-tooltip" id="floatingTooltip" role="tooltip" aria-hidden="true"></div>
+    <div class="status-toast" id="statusToast" role="status" aria-live="polite" aria-hidden="true"></div>
   </div>
 
   <script>
@@ -1139,6 +1212,8 @@
       endButton: document.querySelector("#endButton"),
       outputButton: document.querySelector("#outputButton"),
       outputLabel: document.querySelector("#outputLabel"),
+      outputDisplayPicker: document.querySelector("#outputDisplayPicker"),
+      outputDisplaySelect: document.querySelector("#outputDisplaySelect"),
       clearButton: document.querySelector("#clearButton"),
       closeEditorButton: document.querySelector("#closeEditorButton"),
       saveStatus: document.querySelector("#saveStatus"),
@@ -1172,7 +1247,8 @@
       importButton: document.querySelector("#importButton"),
       fileInput: document.querySelector("#fileInput"),
       dropZone: document.querySelector("#dropZone"),
-      floatingTooltip: document.querySelector("#floatingTooltip")
+      floatingTooltip: document.querySelector("#floatingTooltip"),
+      statusToast: document.querySelector("#statusToast")
     };
 
     const storageKey = "local-teleprompter-state-v2";
@@ -1202,6 +1278,12 @@
     let lastRemotePlaybackRevision = 0;
     let playbackAnchorProgress = 0;
     let playbackAnchorAt = Date.now();
+    let preferredOutputDisplayId = "";
+    let selectedOutputDisplayId = "";
+    let lastOutputWidth = 0;
+    let lastOutputHeight = 0;
+    let outputStatusRefreshPending = false;
+    let statusToastTimer = 0;
 
     if (isOutputMode) {
       document.body.classList.add("output-mode");
@@ -1211,8 +1293,10 @@
       const tauriInvoke = window.__TAURI__.core.invoke;
       const tauriListen = window.__TAURI__.event?.listen;
       window.teleprompterBridge = {
-        toggleOutputWindow: () => tauriInvoke("toggle_output_window"),
+        toggleOutputWindow: (displayId) => tauriInvoke("toggle_output_window", { displayId: displayId || null }),
         closeOutputWindow: () => tauriInvoke("close_output_window"),
+        getOutputStatus: () => tauriInvoke("get_output_status"),
+        selectOutputDisplay: (displayId) => tauriInvoke("select_output_display", { displayId }),
         outputWindowReady: () => tauriInvoke("output_window_ready"),
         sendState: (state) => {
           tauriInvoke("teleprompter_state", { state }).catch(() => {});
@@ -1250,7 +1334,8 @@
       mirrorX: true,
       mirrorY: false,
       displayMode: "dark",
-      editorOpen: false
+      editorOpen: false,
+      outputDisplayId: ""
     };
 
     function loadState() {
@@ -1370,7 +1455,8 @@
         mirrorX: mirrorX === -1,
         mirrorY: mirrorY === -1,
         displayMode,
-        editorOpen: elements.scriptDrawer.classList.contains("open")
+        editorOpen: elements.scriptDrawer.classList.contains("open"),
+        outputDisplayId: preferredOutputDisplayId
       };
       localStorage.setItem(storageKey, JSON.stringify(state));
       elements.saveStatus.textContent = "已自动保存";
@@ -1393,21 +1479,134 @@
     }
 
     function setOutputActive(active) {
-      outputActive = Boolean(active);
+      const nextActive = Boolean(active);
+      const changed = nextActive !== outputActive;
+      outputActive = nextActive;
       elements.outputButton?.setAttribute("aria-pressed", String(outputActive));
       if (elements.outputLabel) {
         elements.outputLabel.textContent = outputActive ? "关闭第二屏" : "第二屏输出";
+      }
+      if (!changed) {
+        return;
       }
       updateMirrorNote();
       applyControls();
       publishState(true);
     }
 
+    function showStatusToast(message) {
+      if (!elements.statusToast || !message || isOutputMode) {
+        return;
+      }
+      window.clearTimeout(statusToastTimer);
+      elements.statusToast.textContent = message;
+      elements.statusToast.classList.add("visible");
+      elements.statusToast.setAttribute("aria-hidden", "false");
+      statusToastTimer = window.setTimeout(() => {
+        elements.statusToast.classList.remove("visible");
+        elements.statusToast.setAttribute("aria-hidden", "true");
+      }, 3600);
+    }
+
+    function renderOutputDisplays(status) {
+      if (!elements.outputDisplayPicker || !elements.outputDisplaySelect || !Array.isArray(status?.displays)) {
+        return;
+      }
+
+      const displays = status.displays;
+      const currentSignature = Array.from(elements.outputDisplaySelect.options)
+        .map((option) => `${option.value}:${option.textContent}`)
+        .join("|");
+      const nextSignature = displays.map((display, index) => {
+        const name = display.name || `显示器 ${index + 1}`;
+        const resolution = display.width && display.height ? ` · ${display.width}×${display.height}` : "";
+        const primary = display.isPrimary ? "（主屏）" : "";
+        return `${display.id}:${name}${resolution}${primary}`;
+      }).join("|");
+
+      if (currentSignature !== nextSignature) {
+        elements.outputDisplaySelect.replaceChildren(...displays.map((display, index) => {
+          const option = document.createElement("option");
+          option.value = String(display.id);
+          const name = display.name || `显示器 ${index + 1}`;
+          const resolution = display.width && display.height ? ` · ${display.width}×${display.height}` : "";
+          option.textContent = `${name}${resolution}${display.isPrimary ? "（主屏）" : ""}`;
+          return option;
+        }));
+      }
+
+      selectedOutputDisplayId = status.selectedDisplayId ? String(status.selectedDisplayId) : "";
+      if (selectedOutputDisplayId && displays.some((display) => String(display.id) === selectedOutputDisplayId)) {
+        elements.outputDisplaySelect.value = selectedOutputDisplayId;
+      }
+      elements.outputDisplayPicker.hidden = displays.length < 2;
+    }
+
     function applyOutputStatus(status) {
-      if (status?.outputWidth && status?.outputHeight) {
+      renderOutputDisplays(status);
+      if (status?.notice === "display-disconnected" || status?.notice === "display-unavailable") {
+        preferredOutputDisplayId = "";
+        saveState();
+        showStatusToast(status.notice === "display-disconnected"
+          ? "输出显示器已断开，第二屏输出已自动关闭"
+          : "所选显示器当前不可用，已切换到可用屏幕");
+      }
+      if (status?.outputWidth && status?.outputHeight
+        && (Number(status.outputWidth) !== lastOutputWidth || Number(status.outputHeight) !== lastOutputHeight)) {
+        lastOutputWidth = Number(status.outputWidth);
+        lastOutputHeight = Number(status.outputHeight);
         setPreviewBaseSize(status.outputWidth, status.outputHeight, true);
       }
       setOutputActive(Boolean(status?.opened));
+    }
+
+    async function refreshOutputStatus() {
+      if (isOutputMode || outputStatusRefreshPending || !window.teleprompterBridge?.getOutputStatus) {
+        return;
+      }
+      outputStatusRefreshPending = true;
+      try {
+        applyOutputStatus(await window.teleprompterBridge.getOutputStatus());
+      } catch {
+        // 桌面壳退出或重载时无需向用户展示轮询错误。
+      } finally {
+        outputStatusRefreshPending = false;
+      }
+    }
+
+    async function initializeOutputDisplays() {
+      if (isOutputMode || !window.teleprompterBridge) {
+        return;
+      }
+      try {
+        const status = preferredOutputDisplayId && window.teleprompterBridge.selectOutputDisplay
+          ? await window.teleprompterBridge.selectOutputDisplay(preferredOutputDisplayId)
+          : await window.teleprompterBridge.getOutputStatus?.();
+        if (status) {
+          applyOutputStatus(status);
+        }
+      } catch {
+        showStatusToast("暂时无法读取显示器信息");
+      }
+      if (window.teleprompterBridge.getOutputStatus) {
+        window.setInterval(refreshOutputStatus, 2000);
+      }
+    }
+
+    async function selectOutputDisplay() {
+      const displayId = elements.outputDisplaySelect?.value;
+      if (!displayId || !window.teleprompterBridge?.selectOutputDisplay) {
+        return;
+      }
+      preferredOutputDisplayId = displayId;
+      saveState();
+      try {
+        applyOutputStatus(await window.teleprompterBridge.selectOutputDisplay(displayId));
+      } catch {
+        showStatusToast("切换输出显示器失败");
+        await refreshOutputStatus();
+      }
+      elements.stage.focus({ preventScroll: true });
     }
 
     function updateMirrorNote() {
@@ -1897,7 +2096,7 @@
       if (!window.teleprompterBridge?.toggleOutputWindow) {
         return;
       }
-      const result = await window.teleprompterBridge.toggleOutputWindow();
+      const result = await window.teleprompterBridge.toggleOutputWindow(preferredOutputDisplayId || undefined);
       applyOutputStatus(result);
       if (!isOutputMode) {
         elements.stage.focus({ preventScroll: true });
@@ -2158,6 +2357,7 @@
       setControlHeight(Math.abs(storedControlHeight - 170) < 2 ? defaultState.controlHeight : storedControlHeight, false);
       mirrorX = state.mirrorX ? -1 : 1;
       mirrorY = state.mirrorY ? -1 : 1;
+      preferredOutputDisplayId = state.outputDisplayId ? String(state.outputDisplayId) : "";
       setEditorOpen(Boolean(state.editorOpen));
       updateText();
       applyControls();
@@ -2178,6 +2378,7 @@
       publishState(true);
     });
     elements.outputButton.addEventListener("click", toggleOutputWindow);
+    elements.outputDisplaySelect?.addEventListener("change", selectOutputDisplay);
     elements.darkModeButton.addEventListener("click", () => {
       setDisplayMode("dark");
       saveState();
@@ -2297,6 +2498,8 @@
     window.teleprompterBridge?.onOutputStatus?.(applyOutputStatus);
     if (isOutputMode) {
       window.teleprompterBridge?.outputWindowReady?.();
+    } else {
+      initializeOutputDisplays();
     }
     publishState(true);
     requestAnimationFrame(animate);
