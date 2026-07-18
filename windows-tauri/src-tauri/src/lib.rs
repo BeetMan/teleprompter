@@ -13,6 +13,8 @@ struct AppState {
     last_playback: Mutex<Option<Value>>,
     selected_display_id: Mutex<Option<String>>,
     active_output_display_id: Mutex<Option<String>>,
+    // 打开第二屏后是否已向 webview 推送过实时状态；推过就不能再重放缓存，否则会打乱顺序
+    output_received_live_state: Mutex<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -228,10 +230,26 @@ fn cache_teleprompter_state(app_state: &AppState, state: &Value) -> Result<(), S
     Ok(())
 }
 
+fn set_output_received_live_state(app_state: &AppState, value: bool) -> Result<(), String> {
+    *app_state
+        .output_received_live_state
+        .lock()
+        .map_err(|_| "状态锁定失败".to_string())? = value;
+    Ok(())
+}
+
 fn emit_cached_teleprompter_state(
     output_window: &WebviewWindow,
     app_state: &AppState,
 ) -> Result<(), String> {
+    let received_live = *app_state
+        .output_received_live_state
+        .lock()
+        .map_err(|_| "状态锁定失败".to_string())?;
+    if received_live {
+        // webview 已经收到过更新的实时状态，重放旧缓存会打乱顺序
+        return Ok(());
+    }
     let snapshot = app_state
         .last_snapshot
         .lock()
@@ -248,6 +266,7 @@ fn emit_cached_teleprompter_state(
             .emit("teleprompter-state", state)
             .map_err(|error| error.to_string())?;
     }
+    set_output_received_live_state(app_state, true)?;
     Ok(())
 }
 
@@ -266,6 +285,7 @@ fn toggle_output_window(
             .map_err(|error| error.to_string())?;
         output_window.hide().map_err(|error| error.to_string())?;
         write_display_id(&app_state.active_output_display_id, None)?;
+        set_output_received_live_state(&app_state, false)?;
         main_window.set_focus().map_err(|error| error.to_string())?;
         let status = inspect_output_status(&app, &main_window, &app_state, None)?;
         emit_output_status(&app, &status)?;
@@ -293,6 +313,7 @@ fn toggle_output_window(
         &app_state.active_output_display_id,
         Some(target_display_id.clone()),
     )?;
+    set_output_received_live_state(&app_state, false)?;
     output_window
         .set_focus()
         .map_err(|error| error.to_string())?;
@@ -323,6 +344,7 @@ fn close_output_window(
         output_window.hide().map_err(|error| error.to_string())?;
     }
     write_display_id(&app_state.active_output_display_id, None)?;
+    set_output_received_live_state(&app_state, false)?;
 
     let main_window = main_window(&app)?;
     main_window.set_focus().map_err(|error| error.to_string())?;
@@ -406,9 +428,12 @@ fn teleprompter_state(
     cache_teleprompter_state(&app_state, &state)?;
 
     if let Ok(output_window) = output_window(&app) {
-        output_window
-            .emit("teleprompter-state", state)
-            .map_err(|error| error.to_string())?;
+        if output_window.is_visible().unwrap_or(false) {
+            output_window
+                .emit("teleprompter-state", state)
+                .map_err(|error| error.to_string())?;
+            set_output_received_live_state(&app_state, true)?;
+        }
     }
 
     Ok(())

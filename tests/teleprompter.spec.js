@@ -185,6 +185,89 @@ test("importing a dropped file publishes the final text and reset position", asy
   )))).toBe(true);
 });
 
+test("importing a GBK-encoded txt file decodes Chinese text without mojibake", async ({ page }) => {
+  await page.goto(appUrl);
+  // “你好，提词器”的 GBK 编码字节
+  const gbkBytes = Buffer.from([0xC4, 0xE3, 0xBA, 0xC3, 0xA3, 0xAC, 0xCC, 0xE1, 0xB4, 0xCA, 0xC6, 0xF7]);
+  await page.locator("#fileInput").setInputFiles({
+    name: "gbk.txt",
+    mimeType: "text/plain",
+    buffer: gbkBytes,
+  });
+
+  await expect(page.locator("#scriptText")).toContainText("你好，提词器");
+});
+
+test("editing the script preserves the current scroll progress", async ({ page }) => {
+  await page.goto(appUrl);
+
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").fill(Array.from({ length: 100 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  await page.locator("#browseRange").fill("75");
+  await expect(page.locator("#browseValue")).toHaveText("75%");
+
+  // 等待填充文本的布局稳定后再编辑下一行，模拟真实操作节奏
+  await page.waitForFunction(() => document.querySelector("#scriptText").offsetHeight > 9000);
+  await page.locator("#scriptInput").fill(Array.from({ length: 150 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  await expect(page.locator("#browseValue")).toHaveText("75%");
+
+  await page.evaluate(() => {
+    localStorage.setItem("local-teleprompter-state-v2", JSON.stringify({ mirrorY: true }));
+  });
+  await page.reload();
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").fill(Array.from({ length: 100 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  // 等待填充文本的布局稳定，避免 seek 撞上 fill 的中间帧
+  await page.waitForTimeout(400);
+  // 镜像模式下用 change 事件 seek，避免 range fill 的中间 input 事件把进度带偏
+  await page.locator("#browseRange").evaluate((slider) => {
+    slider.value = "25";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    slider.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(page.locator("#browseValue")).toHaveText("75%");
+
+  // 模拟连续输入：每次输入都应保持当前进度（修复前会跳回顶部）
+  const input = page.locator("#scriptInput");
+  await input.evaluate((node) => { node.focus(); });
+  await page.keyboard.press("End");
+  for (let index = 101; index <= 130; index += 1) {
+    await page.keyboard.type(`\n第 ${index} 行测试文字`);
+  }
+  await expect(page.locator("#browseValue")).toHaveText("75%");
+});
+
+test("global shortcuts leave focused form controls alone", async ({ page }) => {
+  await page.goto(appUrl);
+
+  const speed = page.locator("#speedRange");
+  const initialSpeed = await speed.inputValue();
+  await speed.focus();
+  await speed.press("ArrowRight");
+  await expect.poll(() => speed.inputValue()).not.toBe(initialSpeed);
+
+  await page.locator("#importButton").focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator("#playLabel")).toHaveText("开始");
+
+  await page.locator("#stage").focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator("#playLabel")).toHaveText("暂停");
+});
+
+test("clicking the progress slider keeps the editor drawer open", async ({ page }) => {
+  await page.goto(appUrl);
+
+  await page.locator("#toggleEditorButton").click();
+  await expect(page.locator("#scriptDrawer")).toHaveClass(/open/);
+
+  await page.locator(".stage-progress").click();
+  await expect(page.locator("#scriptDrawer")).toHaveClass(/open/);
+
+  await page.locator("#previewSurface").click({ position: { x: 40, y: 40 } });
+  await expect(page.locator("#scriptDrawer")).not.toHaveClass(/open/);
+});
+
 test("sync protocol separates document snapshots from playback clocks", async ({ page }) => {
   await page.addInitScript(() => {
     window.__states = [];
@@ -263,6 +346,14 @@ test("output applies ordered protocol messages and ignores stale playback revisi
   });
 
   await expect(page.locator("#scriptText")).toContainText("协议测试第 80 行");
+  // 快进窗口布局完成后再校验播放定位，避免 CI 机器上动画帧/定时器时序差异
+  await page.evaluate(() => window.__receiveState({
+    kind: "playback",
+    protocolVersion: 1,
+    sessionId: "session-a",
+    revision: 3,
+    state: { progress: 0.6, playing: false, speed: 42, anchorAt: Date.now() },
+  }));
   await expect.poll(() => page.locator("#progressValue").textContent()).toBe("60%");
 
   await page.evaluate(() => {

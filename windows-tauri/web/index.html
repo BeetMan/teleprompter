@@ -1806,14 +1806,19 @@
     }
 
     function updateText() {
+      // 编辑会改变内容高度，先记下当前播放进度，渲染后恢复到等效位置；
+      // 远程快照有自己的定位流程，跳过恢复（镜像模式下此前会错误地把第二屏重置回顶部）
+      const preservedProgress = applyingRemoteState ? null : getPlaybackProgress();
       renderScriptText(elements.input.value);
       updateReadingStats();
       updateEmptyState();
       elements.saveStatus.textContent = "正在保存...";
-      if (getScreenMirrorY() === -1 && !playing) {
-        requestAnimationFrame(resetScroll);
-      } else {
-        requestAnimationFrame(updateProgress);
+      if (preservedProgress !== null) {
+        setPlaybackAnchor(preservedProgress);
+        // 最后一行输入的高度要等下一帧才稳定，恢复也放到第二帧执行
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          setScrollY(getScrollYFromProgress(preservedProgress));
+        }));
       }
       window.clearTimeout(updateText.saveTimer);
       updateText.saveTimer = window.setTimeout(saveState, 180);
@@ -1892,6 +1897,11 @@
       if (!textHeight) {
         return 0;
       }
+      // 播放时以锚点进度为准：编辑等场景改变内容高度后 scrollY 会被暂时钳制，
+      // 直接读取会得到错误比例
+      if (playing) {
+        return clamp(playbackAnchorProgress, 0, 1);
+      }
       const start = getStartScrollY();
       const end = getEndScrollY();
       return start === end ? 0 : clamp((scrollY - start) / (end - start), 0, 1);
@@ -1959,6 +1969,11 @@
       const start = getStartScrollY();
       const end = getEndScrollY();
       scrollY = clamp(value, Math.min(start, end), Math.max(start, end));
+      // 暂停时滚动位置就是播放锚点，避免后续基于锚点的计算（编辑恢复等）用过期值
+      if (!playing && !applyingRemoteState) {
+        playbackAnchorProgress = getScrollProgress();
+        playbackAnchorAt = Date.now();
+      }
       elements.text.style.setProperty("--scroll-y", `${scrollY}px`);
       updateProgress();
       if (shouldPublish) {
@@ -2010,7 +2025,7 @@
       if (!elements.scriptDrawer.classList.contains("open")) {
         return;
       }
-      if (event.target.closest?.(".empty-actions")) {
+      if (event.target.closest?.(".empty-actions, .stage-progress")) {
         return;
       }
       setEditorOpen(false);
@@ -2241,6 +2256,20 @@
       return extractDocxText(new TextDecoder("utf-8").decode(xmlBytes));
     }
 
+    async function readPlainText(file) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // 先按 UTF-8 严格解码，失败时按 GB18030 处理（Windows 记事本默认的 ANSI 编码）
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        try {
+          return new TextDecoder("gb18030").decode(bytes);
+        } catch {
+          return new TextDecoder("utf-8").decode(bytes);
+        }
+      }
+    }
+
     async function importFile(file) {
       if (!file || isOutputMode) {
         return;
@@ -2248,7 +2277,7 @@
       elements.saveStatus.textContent = `正在读取 ${file.name}`;
       const ext = file.name.split(".").pop().toLowerCase();
       try {
-        const text = ext === "docx" ? await readDocx(file) : await file.text();
+        const text = ext === "docx" ? await readDocx(file) : await readPlainText(file);
         elements.input.value = normalizeImportedText(text);
         updateText();
         resetScroll();
@@ -2457,27 +2486,33 @@
         }
         return;
       }
-      const editing = document.activeElement === elements.input;
-      if (event.code === "Space" && !editing) {
+      // 焦点在滑块、下拉框、按钮等表单控件上时，把按键留给控件的原生行为
+      const shortcutTarget = event.target;
+      const editing = shortcutTarget instanceof HTMLElement
+        && shortcutTarget.closest("input, select, textarea, button");
+      if (editing) {
+        return;
+      }
+      if (event.code === "Space") {
         event.preventDefault();
         setPlaying(!playing);
       }
-      if (event.key.toLowerCase() === "r" && !editing) {
+      if (event.key.toLowerCase() === "r") {
         event.preventDefault();
         resetScroll();
         publishState(true);
       }
-      if (event.key.toLowerCase() === "f" && !editing) {
+      if (event.key.toLowerCase() === "f") {
         event.preventDefault();
         toggleFullscreen();
       }
-      if ((event.key === "ArrowUp" || event.key === "ArrowDown") && !editing) {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         event.preventDefault();
         const direction = event.key === "ArrowUp" ? 1 : -1;
         nudgeScrollByKeyboard(direction, event.shiftKey);
         publishState(true);
       }
-      if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !editing) {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         const direction = event.key === "ArrowRight" ? 1 : -1;
         nudgeSpeedByKeyboard(direction, event.shiftKey);

@@ -19,8 +19,12 @@ function cacheTeleprompterState(message) {
   }
 }
 
-function sendCachedTeleprompterState(window) {
+function sendCachedTeleprompterState(window, stateMarker = null) {
   if (!window || window.isDestroyed()) {
+    return;
+  }
+  // 窗口加载期间主窗口可能已经推送过新状态，此时再重放缓存会打乱顺序
+  if (stateMarker && stateMarker.receivedLiveState) {
     return;
   }
   if (lastTeleprompterSnapshot) {
@@ -173,9 +177,11 @@ function createOutputWindow(requestedDisplayId) {
     query: { mode: "output" },
   });
   const createdOutputWindow = outputWindow;
+  const stateMarker = { receivedLiveState: false };
+  createdOutputWindow.stateMarker = stateMarker;
 
   createdOutputWindow.webContents.once("did-finish-load", () => {
-    sendCachedTeleprompterState(createdOutputWindow);
+    sendCachedTeleprompterState(createdOutputWindow, stateMarker);
   });
 
   createdOutputWindow.on("closed", () => {
@@ -258,6 +264,9 @@ ipcMain.on("teleprompter-state", (event, state) => {
   }
   cacheTeleprompterState(state);
   if (outputWindow && !outputWindow.isDestroyed()) {
+    if (outputWindow.stateMarker) {
+      outputWindow.stateMarker.receivedLiveState = true;
+    }
     outputWindow.webContents.send("teleprompter-state", state);
   }
 });
