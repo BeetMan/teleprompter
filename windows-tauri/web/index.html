@@ -347,11 +347,12 @@
     }
 
     .control-row-primary .speed-field {
-      flex: 0 1 190px;
-      min-width: 120px;
+      flex: 1 1 auto;
+      min-width: 160px;
+      max-width: 480px;
     }
 
-    .control-row-primary .output-button {
+    .control-row-primary #toggleEditorButton {
       margin-left: auto;
     }
 
@@ -1018,10 +1019,6 @@
             </svg>
             <span>尾部</span>
           </button>
-          <div class="field speed-field">
-            <label for="speedRange">速度 <span class="value" id="speedValue">40</span></label>
-            <input id="speedRange" type="range" min="5" max="240" value="42">
-          </div>
           <button class="button output-button main-action" id="outputButton" type="button" title="第二屏输出" aria-label="第二屏输出" aria-pressed="false">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="3" y="4" width="18" height="12" rx="2"></rect>
@@ -1033,6 +1030,10 @@
           <label class="output-display-picker" id="outputDisplayPicker" for="outputDisplaySelect" hidden>
             <select id="outputDisplaySelect" aria-label="选择输出显示器"></select>
           </label>
+          <div class="field speed-field">
+            <label for="speedRange">速度 <span class="value" id="speedValue">40</span></label>
+            <input id="speedRange" type="range" min="5" max="240" value="42">
+          </div>
           <button class="button" id="toggleEditorButton" type="button" aria-expanded="false">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 20h9"></path>
