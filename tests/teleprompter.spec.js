@@ -255,6 +255,28 @@ test("global shortcuts leave focused form controls alone", async ({ page }) => {
   await expect(page.locator("#playLabel")).toHaveText("暂停");
 });
 
+test("arrow keys adjust progress while playing instead of snapping back", async ({ page }) => {
+  await page.goto(appUrl);
+
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").fill(Array.from({ length: 200 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  await page.waitForTimeout(400);
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#playButton").click();
+  await page.waitForTimeout(300);
+
+  // 快进：向上回退三行（镜像开启时 ↓ 也会向上回退，文本高度足够不会触底）
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  const nudgedScroll = await page.evaluate(() => parseFloat(document.querySelector("#scriptText").style.getPropertyValue("--scroll-y")));
+  await page.waitForTimeout(300);
+  const laterScroll = await page.evaluate(() => parseFloat(document.querySelector("#scriptText").style.getPropertyValue("--scroll-y")));
+  // 锚点已同步时，后续播放从回退位置继续向前（值更负），而不是跳回接近 0
+  expect(laterScroll).toBeLessThan(nudgedScroll);
+  expect(laterScroll).toBeLessThan(-150);
+});
+
 test("clicking the progress slider keeps the editor drawer open", async ({ page }) => {
   await page.goto(appUrl);
 

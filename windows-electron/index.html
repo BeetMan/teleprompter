@@ -1878,6 +1878,10 @@
       setPlaybackAnchor(getScrollProgress(), now);
       updatePlayingUi();
       publishState(true);
+      // 播放 / 暂停按钮是高频控件，操作后把焦点交回预览区，让方向键等播放快捷键保持可用
+      if (!isOutputMode && document.activeElement === elements.playButton) {
+        elements.stage.focus({ preventScroll: true });
+      }
     }
 
     function getMirroredScrollY(value) {
@@ -1896,11 +1900,6 @@
       const textHeight = elements.text.offsetHeight;
       if (!textHeight) {
         return 0;
-      }
-      // 播放时以锚点进度为准：编辑等场景改变内容高度后 scrollY 会被暂时钳制，
-      // 直接读取会得到错误比例
-      if (playing) {
-        return clamp(playbackAnchorProgress, 0, 1);
       }
       const start = getStartScrollY();
       const end = getEndScrollY();
@@ -2000,6 +1999,8 @@
       const lineStep = Number(elements.lineRange.value) || Number(elements.sizeRange.value) || defaultState.size;
       const amount = lineStep * (fast ? 3 : 1);
       setScrollY(scrollY + direction * amount);
+      // 播放中锚点是动画循环的唯一进度来源，手动调整必须同步锚点，否则下一帧就被拉回去
+      setPlaybackAnchor(getScrollProgress());
     }
 
     function nudgeSpeedByKeyboard(direction, fast = false) {
@@ -2489,7 +2490,7 @@
       // 焦点在滑块、下拉框、按钮等表单控件上时，把按键留给控件的原生行为
       const shortcutTarget = event.target;
       const editing = shortcutTarget instanceof HTMLElement
-        && shortcutTarget.closest("input, select, textarea, button");
+        && shortcutTarget.closest("input:not([type='range']), select, textarea, button");
       if (editing) {
         return;
       }
@@ -2525,6 +2526,8 @@
       event.preventDefault();
       const direction = getScreenMirrorY() === -1 ? 1 : -1;
       setScrollY(scrollY + direction * event.deltaY / getPreviewScale());
+      // 播放中锚点是动画循环的唯一进度来源，手动调整必须同步锚点，否则下一帧就被拉回去
+      setPlaybackAnchor(getScrollProgress());
       publishState(true);
     }, { passive: false });
 
