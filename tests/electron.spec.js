@@ -53,7 +53,7 @@ test("Electron output window can reopen and restore document and playback state"
     await mainWindow.locator("#speedRange").fill("240");
     await mainWindow.locator("#playButton").click();
     await expect(outputWindow.locator("#playButton")).not.toHaveClass(/primary/);
-    await expect.poll(async () => Number.parseInt(await outputWindow.locator("#progressValue").textContent(), 10)).toBeGreaterThan(0);
+    await expect.poll(async () => Number.parseInt(await outputWindow.locator("#browseValue").textContent(), 10)).toBeGreaterThan(0);
 
     await mainWindow.locator("#outputButton").click();
     await expect.poll(() => electronApp.windows().filter((window) => window.url().includes("mode=output")).length).toBe(0);

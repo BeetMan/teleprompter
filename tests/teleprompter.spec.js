@@ -30,7 +30,6 @@ test("control panel fits its content by default without an inner scrollbar", asy
   // 第一行主操作都可见
   await expect(page.locator("#playButton")).toBeVisible();
   await expect(page.locator("#speedRange")).toBeVisible();
-  await expect(page.locator(".control-row-primary .progress-row")).toBeVisible();
   await expect(page.locator("#toggleEditorButton")).toBeVisible();
 
   // 用户拖过高度后刷新应沿用用户高度
@@ -403,7 +402,7 @@ test("output applies ordered protocol messages and ignores stale playback revisi
     revision: 3,
     state: { progress: 0.6, playing: false, speed: 42, anchorAt: Date.now() },
   }));
-  await expect.poll(() => page.locator("#progressValue").textContent()).toBe("60%");
+  await expect.poll(() => page.locator("#browseValue").textContent()).toBe("60%");
 
   await page.evaluate(() => {
     window.__receiveState({
@@ -414,7 +413,7 @@ test("output applies ordered protocol messages and ignores stale playback revisi
       state: { progress: 0.25, playing: false, speed: 42, anchorAt: Date.now() },
     });
   });
-  await expect.poll(() => page.locator("#progressValue").textContent()).toBe("25%");
+  await expect.poll(() => page.locator("#browseValue").textContent()).toBe("25%");
 });
 
 test("output mode ignores playback keys and only handles Escape", async ({ page }) => {

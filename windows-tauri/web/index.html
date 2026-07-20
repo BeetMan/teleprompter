@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="app-version" content="6.1">
+  <meta name="app-version" content="6.2">
   <title>提词器</title>
   <style>
     :root {
@@ -316,9 +316,9 @@
     .control-main {
       display: grid;
       grid-template-rows: auto auto;
-      gap: 6px;
+      gap: 4px;
       align-items: stretch;
-      padding: 8px 10px;
+      padding: 6px 10px;
       min-width: 0;
       overflow-y: auto;
       transition: opacity .16s ease, transform .16s ease;
@@ -337,13 +337,13 @@
 
     .control-row-primary .button {
       flex: none;
-      min-height: 40px;
+      min-height: 38px;
     }
 
     .control-row-primary .main-action {
-      min-height: 44px;
-      padding: 0 18px;
-      font-size: 15px;
+      min-height: 40px;
+      padding: 0 16px;
+      font-size: 14px;
     }
 
     .control-row-primary .speed-field {
@@ -351,32 +351,32 @@
       min-width: 120px;
     }
 
-    .control-row-primary .progress-row {
-      flex: 1 1 auto;
-      min-width: 140px;
+    .control-row-primary .output-button {
+      margin-left: auto;
     }
 
     .control-row-settings {
       flex-wrap: nowrap;
-      gap: 10px;
+      gap: 8px;
     }
 
     .settings-group {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       flex: none;
     }
 
     .settings-group .button {
-      min-height: 34px;
-      padding: 0 10px;
+      min-height: 30px;
+      padding: 0 9px;
       font-size: 12px;
     }
 
     .control-row-settings .control-group {
       flex: 1 1 0;
       min-width: 0;
+      padding: 4px 7px;
     }
 
     .control-row-settings .mirror-note {
@@ -436,10 +436,10 @@
     .control-group {
       display: grid;
       grid-template-columns: repeat(var(--cols, 1), minmax(72px, 1fr));
-      gap: 6px;
+      gap: 3px 6px;
       align-items: center;
       min-width: 0;
-      padding: 5px 7px;
+      padding: 4px 7px;
       border: 1px solid rgba(255, 255, 255, .06);
       border-radius: 8px;
       background: rgba(0, 0, 0, .12);
@@ -450,30 +450,6 @@
       color: var(--muted);
       font-size: 11px;
       line-height: 1;
-    }
-
-    .progress-row {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      align-items: center;
-      min-width: 0;
-      color: var(--muted);
-      font-size: 11px;
-    }
-
-    .progress-track {
-      height: 5px;
-      overflow: hidden;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, .14);
-    }
-
-    .progress-fill {
-      width: 0%;
-      height: 100%;
-      border-radius: inherit;
-      background: var(--accent-2);
     }
 
     .shortcut-hint {
@@ -545,7 +521,7 @@
 
     .field {
       display: grid;
-      gap: 6px;
+      gap: 3px;
       min-width: 0;
     }
 
@@ -877,11 +853,6 @@
         flex-wrap: wrap;
       }
 
-      .control-row-primary .progress-row {
-        order: 10;
-        flex: 1 1 100%;
-      }
-
       .control-row-settings {
         flex-wrap: wrap;
       }
@@ -1051,12 +1022,6 @@
             <label for="speedRange">速度 <span class="value" id="speedValue">40</span></label>
             <input id="speedRange" type="range" min="5" max="240" value="42">
           </div>
-          <div class="progress-row" aria-label="稿件进度">
-            <div class="progress-track" aria-hidden="true">
-              <div class="progress-fill" id="progressFill"></div>
-            </div>
-            <span class="value" id="progressValue">0%</span>
-          </div>
           <button class="button output-button main-action" id="outputButton" type="button" title="第二屏输出" aria-label="第二屏输出" aria-pressed="false">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="3" y="4" width="18" height="12" rx="2"></rect>
@@ -1214,8 +1179,6 @@
       guideRange: document.querySelector("#guideRange"),
       browseRange: document.querySelector("#browseRange"),
       speedValue: document.querySelector("#speedValue"),
-      progressFill: document.querySelector("#progressFill"),
-      progressValue: document.querySelector("#progressValue"),
       browseValue: document.querySelector("#browseValue"),
       sizeValue: document.querySelector("#sizeValue"),
       lineValue: document.querySelector("#lineValue"),
@@ -1904,8 +1867,6 @@
       const progress = getScrollProgress();
       const percent = Math.round(progress * 100);
       const browsePercent = getBrowseSliderPercent(percent);
-      elements.progressFill.style.width = `${percent}%`;
-      elements.progressValue.textContent = `${percent}%`;
       elements.stage.style.setProperty("--guide-progress", `${getGuideProgressPercent(percent)}%`);
       if (!seekingProgress && elements.browseRange) {
         elements.browseRange.value = String(browsePercent);
