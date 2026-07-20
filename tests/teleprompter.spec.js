@@ -16,6 +16,33 @@ test("main UI renders the preview and controls", async ({ page }) => {
   await expect(page.locator("#scriptInput")).toHaveValue(/大家好/);
 });
 
+test("control panel fits its content by default without an inner scrollbar", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => localStorage.removeItem("local-teleprompter-state-v2"));
+  await page.reload();
+
+  // 默认状态应完整展开两行内容
+  await expect.poll(() => page.evaluate(() => {
+    const main = document.querySelector(".control-main");
+    return main.scrollHeight - main.clientHeight;
+  })).toBeLessThanOrEqual(1);
+
+  // 第一行主操作都可见
+  await expect(page.locator("#playButton")).toBeVisible();
+  await expect(page.locator("#speedRange")).toBeVisible();
+  await expect(page.locator(".control-row-primary .progress-row")).toBeVisible();
+  await expect(page.locator("#toggleEditorButton")).toBeVisible();
+
+  // 用户拖过高度后刷新应沿用用户高度
+  await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem("local-teleprompter-state-v2") || "{}");
+    state.controlHeight = 220;
+    localStorage.setItem("local-teleprompter-state-v2", JSON.stringify(state));
+  });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => Math.round(document.querySelector(".control-panel").getBoundingClientRect().height))).toBe(220);
+});
+
 test("editing script and display sliders update without layout failure", async ({ page }) => {
   await page.goto(appUrl);
 

@@ -315,8 +315,8 @@
 
     .control-main {
       display: grid;
-      grid-template-columns: minmax(280px, .95fr) minmax(240px, .78fr) minmax(520px, 1.9fr);
-      gap: 10px;
+      grid-template-rows: auto auto;
+      gap: 6px;
       align-items: stretch;
       padding: 8px 10px;
       min-width: 0;
@@ -324,36 +324,88 @@
       transition: opacity .16s ease, transform .16s ease;
     }
 
-    .control-section {
-      display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      gap: 6px;
-      min-width: 0;
-      padding: 6px;
-      border: 1px solid rgba(255, 255, 255, .065);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, .025);
-    }
-
-    .section-title {
-      color: var(--muted);
-      font-size: 11px;
-      line-height: 1;
-    }
-
-    .playback-section-title {
+    .control-row {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       gap: 8px;
       min-width: 0;
+    }
+
+    .control-row-primary {
+      flex-wrap: nowrap;
+    }
+
+    .control-row-primary .button {
+      flex: none;
+      min-height: 40px;
+    }
+
+    .control-row-primary .main-action {
+      min-height: 44px;
+      padding: 0 18px;
+      font-size: 15px;
+    }
+
+    .control-row-primary .speed-field {
+      flex: 0 1 190px;
+      min-width: 120px;
+    }
+
+    .control-row-primary .progress-row {
+      flex: 1 1 auto;
+      min-width: 140px;
+    }
+
+    .control-row-settings {
+      flex-wrap: nowrap;
+      gap: 10px;
+    }
+
+    .settings-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: none;
+    }
+
+    .settings-group .button {
+      min-height: 34px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
+    .control-row-settings .control-group {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .control-row-settings .mirror-note {
+      display: none;
+      flex: none;
+      color: var(--accent-2);
+      font-size: 11px;
+      line-height: 1.25;
+      white-space: nowrap;
+    }
+
+    .control-row-settings .mirror-note:not(:empty) {
+      display: block;
+    }
+
+    .control-main > .shortcut-hint {
+      position: absolute;
+      top: -20px;
+      right: 10px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1;
+      white-space: nowrap;
+      opacity: .8;
     }
 
     .output-display-picker {
       display: flex;
       align-items: center;
-      justify-content: flex-end;
-      gap: 5px;
       min-width: 0;
       font-size: 11px;
       white-space: nowrap;
@@ -365,8 +417,8 @@
 
     .output-display-picker select {
       min-width: 0;
-      width: min(180px, 18vw);
-      height: 24px;
+      width: min(150px, 14vw);
+      height: 28px;
       padding: 0 24px 0 7px;
       border: 1px solid rgba(128, 202, 255, .22);
       border-radius: 5px;
@@ -379,35 +431,6 @@
     .output-display-picker select:focus-visible {
       outline: 2px solid rgba(128, 202, 255, .56);
       outline-offset: 1px;
-    }
-
-    .quick-controls,
-    .display-actions {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-    }
-
-    .quick-controls {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .quick-controls .button {
-      width: 100%;
-    }
-
-    .display-actions .button {
-      width: 100%;
-    }
-
-    .slider-groups {
-      display: grid;
-      grid-template-columns: minmax(260px, 1.35fr) minmax(180px, .9fr);
-      gap: 6px;
-      min-width: 0;
-      align-items: stretch;
     }
 
     .control-group {
@@ -672,13 +695,6 @@
       background: rgba(128, 202, 255, .16);
     }
 
-    .mirror-note {
-      min-height: 16px;
-      color: var(--accent-2);
-      font-size: 11px;
-      line-height: 1.25;
-    }
-
     .script-drawer {
       position: absolute;
       left: 0;
@@ -857,29 +873,25 @@
         grid-template-rows: minmax(0, 1fr) var(--control-height, clamp(104px, 14vh, 132px));
       }
 
-      .control-main {
-        grid-template-columns: 1fr;
-        align-items: start;
+      .control-row-primary {
+        flex-wrap: wrap;
       }
 
-      .quick-controls {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+      .control-row-primary .progress-row {
+        order: 10;
+        flex: 1 1 100%;
       }
 
-      .display-actions {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+      .control-row-settings {
+        flex-wrap: wrap;
       }
 
-      .slider-groups {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+      .control-row-settings .control-group {
+        flex: 1 1 45%;
       }
 
-      .control-group {
-        grid-template-columns: repeat(var(--cols), minmax(70px, 1fr));
-      }
-
-      .field {
-        grid-column: span 1;
+      .control-row-settings .shortcut-hint {
+        display: none;
       }
     }
 
@@ -888,27 +900,17 @@
         grid-template-rows: minmax(0, 1fr) var(--control-height, clamp(126px, 19vh, 164px));
       }
 
-      .control-main {
-        grid-template-columns: 1fr;
+      .control-row-primary .speed-field {
+        flex: 1 1 100%;
+        order: 9;
       }
 
-      .quick-controls,
-      .slider-groups,
-      .control-section {
-        grid-column: 1 / -1;
+      .control-row-settings .settings-group {
+        flex: 1 1 100%;
       }
 
-      .quick-controls {
-        align-items: flex-start;
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .display-actions {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .slider-groups {
-        grid-template-columns: 1fr;
+      .control-row-settings .control-group {
+        flex: 1 1 100%;
       }
 
       .control-group {
@@ -1023,63 +1025,69 @@
       <div class="control-main">
         <span class="sr-only" id="saveStatus" aria-live="polite">已自动保存</span>
 
-        <div class="control-section">
-          <div class="section-title playback-section-title">
-            <span>播放</span>
-            <label class="output-display-picker" id="outputDisplayPicker" for="outputDisplaySelect" hidden>
-              <span>输出到</span>
-              <select id="outputDisplaySelect" aria-label="选择输出显示器"></select>
-            </label>
+        <div class="control-row control-row-primary">
+          <button class="button primary main-action" id="playButton" type="button">
+            <svg class="icon" id="playIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z"></path>
+            </svg>
+            <span id="playLabel">开始</span>
+          </button>
+          <button class="button secondary-action" id="resetButton" type="button" title="回到顶部" aria-label="回到顶部">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+              <path d="M3 4v6h6"></path>
+            </svg>
+            <span>顶部</span>
+          </button>
+          <button class="button secondary-action" id="endButton" type="button" title="回到尾部" aria-label="回到尾部">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M4 5h16"></path>
+              <path d="M12 5v14"></path>
+              <path d="m19 12-7 7-7-7"></path>
+            </svg>
+            <span>尾部</span>
+          </button>
+          <div class="field speed-field">
+            <label for="speedRange">速度 <span class="value" id="speedValue">40</span></label>
+            <input id="speedRange" type="range" min="5" max="240" value="42">
           </div>
-          <div class="quick-controls">
-            <button class="button primary main-action" id="playButton" type="button">
-              <svg class="icon" id="playIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M8 5v14l11-7z"></path>
-              </svg>
-              <span id="playLabel">开始</span>
-            </button>
-            <button class="button secondary-action" id="resetButton" type="button" title="回到顶部" aria-label="回到顶部">
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M3 12a9 9 0 1 0 3-6.7"></path>
-                <path d="M3 4v6h6"></path>
-              </svg>
-              <span>回到顶部</span>
-            </button>
-            <button class="button secondary-action" id="endButton" type="button" title="回到尾部" aria-label="回到尾部">
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M4 5h16"></path>
-                <path d="M12 5v14"></path>
-                <path d="m19 12-7 7-7-7"></path>
-              </svg>
-              <span>回到尾部</span>
-            </button>
-            <button class="button output-button main-action" id="outputButton" type="button" title="第二屏输出" aria-label="第二屏输出" aria-pressed="false">
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <rect x="3" y="4" width="18" height="12" rx="2"></rect>
-                <path d="M8 20h8"></path>
-                <path d="M12 16v4"></path>
-              </svg>
-              <span id="outputLabel">第二屏输出</span>
-            </button>
-          </div>
-          <div class="control-group" style="--cols: 1">
-            <div class="field">
-              <label for="speedRange">速度 <span class="value" id="speedValue">40</span></label>
-              <input id="speedRange" type="range" min="5" max="240" value="42">
+          <div class="progress-row" aria-label="稿件进度">
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-fill" id="progressFill"></div>
             </div>
-            <div class="progress-row" aria-label="稿件进度">
-              <div class="progress-track" aria-hidden="true">
-                <div class="progress-fill" id="progressFill"></div>
-              </div>
-              <span class="value" id="progressValue">0%</span>
-            </div>
-            <div class="shortcut-hint">Space 播放 · R 重置 · F 全屏 · ↑↓ 滚动 · ←→ 速度</div>
+            <span class="value" id="progressValue">0%</span>
           </div>
+          <button class="button output-button main-action" id="outputButton" type="button" title="第二屏输出" aria-label="第二屏输出" aria-pressed="false">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="12" rx="2"></rect>
+              <path d="M8 20h8"></path>
+              <path d="M12 16v4"></path>
+            </svg>
+            <span id="outputLabel">第二屏</span>
+          </button>
+          <label class="output-display-picker" id="outputDisplayPicker" for="outputDisplaySelect" hidden>
+            <select id="outputDisplaySelect" aria-label="选择输出显示器"></select>
+          </label>
+          <button class="button" id="toggleEditorButton" type="button" aria-expanded="false">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+            </svg>
+            <span>稿件</span>
+          </button>
+          <button class="button" id="importButton" type="button">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <path d="M7 10l5-5 5 5"></path>
+              <path d="M12 5v12"></path>
+            </svg>
+            <span>读取</span>
+          </button>
+          <input id="fileInput" type="file" accept=".txt,.md,.markdown,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
         </div>
 
-        <div class="control-section">
-          <div class="section-title">工具</div>
-          <div class="display-actions">
+        <div class="control-row control-row-settings">
+          <div class="settings-group">
             <button class="button toggle" id="mirrorXButton" type="button" aria-pressed="false" title="水平镜像" aria-label="水平镜像">
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M12 3v18"></path>
@@ -1096,64 +1104,42 @@
               </svg>
               <span>垂直镜像</span>
             </button>
-            <button class="button" id="toggleEditorButton" type="button" aria-expanded="false">
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M12 20h9"></path>
-                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
-              </svg>
-              <span>稿件</span>
-            </button>
-            <button class="button" id="importButton" type="button">
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <path d="M7 10l5-5 5 5"></path>
-                <path d="M12 5v12"></path>
-              </svg>
-              <span>读取</span>
-            </button>
-            <input id="fileInput" type="file" accept=".txt,.md,.markdown,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+            <button class="button toggle" id="darkModeButton" type="button" aria-pressed="true">黑底</button>
+            <button class="button toggle" id="lightModeButton" type="button" aria-pressed="false">白底</button>
+          </div>
+          <div class="control-group" style="--cols: 3">
+            <div class="group-title">文字</div>
+            <div class="field">
+              <label for="sizeRange">字号 <span class="value" id="sizeValue">64</span></label>
+              <input id="sizeRange" type="range" min="28" max="128" value="64">
+            </div>
+            <div class="field">
+              <label for="lineRange">行距 <span class="value" id="lineValue">91px</span></label>
+              <input id="lineRange" type="range" min="28" max="180" value="91">
+            </div>
+            <div class="field">
+              <label for="spacingRange">字距 <span class="value" id="spacingValue">0</span></label>
+              <input id="spacingRange" type="range" min="-4" max="24" value="0" step="0.5">
+            </div>
+          </div>
+          <div class="control-group" style="--cols: 3">
+            <div class="group-title">位置</div>
+            <div class="field">
+              <label for="widthRange">宽度 <span class="value" id="widthValue">84%</span></label>
+              <input id="widthRange" type="range" min="54" max="94" value="84">
+            </div>
+            <div class="field">
+              <label for="offsetRange">水平位置 <span class="value" id="offsetValue">0</span></label>
+              <input id="offsetRange" type="range" min="-30" max="30" value="0" step="1">
+            </div>
+            <div class="field">
+              <label for="guideRange">指示线 <span class="value" id="guideValue">50%</span></label>
+              <input id="guideRange" type="range" min="25" max="75" value="50" step="1">
+            </div>
           </div>
           <div class="mirror-note" id="mirrorNote"></div>
         </div>
-
-        <div class="control-section">
-          <div class="section-title">显示</div>
-          <div class="slider-groups">
-            <div class="control-group" style="--cols: 3">
-              <div class="group-title">文字</div>
-              <div class="field">
-                <label for="sizeRange">字号 <span class="value" id="sizeValue">64</span></label>
-                <input id="sizeRange" type="range" min="28" max="128" value="64">
-              </div>
-              <div class="field">
-                <label for="lineRange">行距 <span class="value" id="lineValue">91px</span></label>
-                <input id="lineRange" type="range" min="28" max="180" value="91">
-              </div>
-              <div class="field">
-                <label for="spacingRange">字距 <span class="value" id="spacingValue">0</span></label>
-                <input id="spacingRange" type="range" min="-4" max="24" value="0" step="0.5">
-              </div>
-            </div>
-
-            <div class="control-group" style="--cols: 3">
-              <div class="group-title">位置</div>
-              <div class="field">
-                <label for="widthRange">宽度 <span class="value" id="widthValue">84%</span></label>
-                <input id="widthRange" type="range" min="54" max="94" value="84">
-              </div>
-              <div class="field">
-                <label for="offsetRange">水平位置 <span class="value" id="offsetValue">0</span></label>
-                <input id="offsetRange" type="range" min="-30" max="30" value="0" step="1">
-              </div>
-              <div class="field">
-                <label for="guideRange">指示线位置 <span class="value" id="guideValue">50%</span></label>
-                <input id="guideRange" type="range" min="25" max="75" value="50" step="1">
-              </div>
-              <button class="button toggle" id="darkModeButton" type="button" aria-pressed="true">黑底白字</button>
-              <button class="button toggle" id="lightModeButton" type="button" aria-pressed="false">白底黑字</button>
-            </div>
-          </div>
-        </div>
+        <div class="shortcut-hint">Space 播放 · R 重置 · F 全屏 · ↑↓ 进度 · ←→ 速度</div>
       </div>
 
       <div class="script-drawer" id="scriptDrawer">
@@ -1366,8 +1352,9 @@
 
     function getControlBounds() {
       const viewportHeight = window.innerHeight;
-      const minHeight = window.innerWidth < 720 ? 164 : 128;
-      const maxHeight = Math.max(minHeight, Math.round(viewportHeight * .4));
+      // 最小高度保留第一行主操作可见
+      const minHeight = window.innerWidth < 720 ? 164 : 96;
+      const maxHeight = Math.max(minHeight, Math.round(viewportHeight * .5));
       return { minHeight, maxHeight };
     }
 
@@ -2372,6 +2359,14 @@
       }
     }
 
+    function fitControlHeightToContent() {
+      // 把控制栏高度调整为恰好容纳两行内容（无内滚动条），仅在未存用户高度时作为默认值
+      const { maxHeight } = getControlBounds();
+      // 直接按当前布局量内容，不先把高度撑到 max（撑高会让 scrollHeight 虚涨）
+      const natural = Math.ceil(elements.controlMain.scrollHeight) + 4;
+      setControlHeight(Math.min(natural, maxHeight), true);
+    }
+
     function hydrate() {
       const state = loadState();
       elements.input.value = state.text;
@@ -2383,8 +2378,6 @@
       elements.offsetRange.value = state.offset ?? 0;
       elements.guideRange.value = state.guide ?? defaultState.guide;
       setDisplayMode(state.displayMode ?? defaultState.displayMode);
-      const storedControlHeight = Number(state.controlHeight) || defaultState.controlHeight;
-      setControlHeight(Math.abs(storedControlHeight - 170) < 2 ? defaultState.controlHeight : storedControlHeight, false);
       mirrorX = state.mirrorX ? -1 : 1;
       mirrorY = state.mirrorY ? -1 : 1;
       preferredOutputDisplayId = state.outputDisplayId ? String(state.outputDisplayId) : "";
@@ -2392,6 +2385,17 @@
       updateText();
       applyControls();
       resetScroll();
+      const storedControlHeight = Number(state.controlHeight);
+      const isUserHeight = storedControlHeight > 0
+        && Math.abs(storedControlHeight - defaultState.controlHeight) >= 2
+        && Math.abs(storedControlHeight - 170) >= 2;
+      if (isUserHeight) {
+        // 用户拖过高度，沿用
+        setControlHeight(storedControlHeight, false);
+      } else {
+        // 默认状态：测量内容自然高度，完整展开两行
+        requestAnimationFrame(fitControlHeightToContent);
+      }
     }
 
     elements.input.addEventListener("input", updateText);
