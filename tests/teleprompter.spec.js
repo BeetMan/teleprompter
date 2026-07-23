@@ -224,6 +224,21 @@ test("importing a GBK-encoded txt file decodes Chinese text without mojibake", a
   await expect(page.locator("#scriptText")).toContainText("你好，提词器");
 });
 
+test("importing an unsupported file type is rejected with a notice", async ({ page }) => {
+  await page.goto(appUrl);
+  const before = await page.locator("#scriptText").textContent();
+
+  await page.locator("#fileInput").setInputFiles({
+    name: "brochure.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 not real", "utf8"),
+  });
+
+  // 稿件内容不变，并弹出类型提示
+  await expect(page.locator("#scriptText")).toHaveText(before);
+  await expect(page.locator("#statusToast")).toContainText("不支持的文件类型");
+});
+
 test("editing the script preserves the current scroll progress", async ({ page }) => {
   await page.goto(appUrl);
 
@@ -281,8 +296,34 @@ test("global shortcuts leave focused form controls alone", async ({ page }) => {
   await expect(page.locator("#playLabel")).toHaveText("暂停");
 });
 
-test("arrow keys adjust progress while playing instead of snapping back", async ({ page }) => {
+test("timer readout shows elapsed and remaining time and updates during playback", async ({ page }) => {
   await page.goto(appUrl);
+
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").fill(Array.from({ length: 200 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  await page.locator("#speedRange").fill("120");
+  await page.waitForTimeout(300);
+  await page.locator("#toggleEditorButton").click();
+
+  // 静止时剩余时间应大于已用时间（初始进度接近 0）
+  const initial = await page.evaluate(() => ({
+    elapsed: document.querySelector("#timerElapsed").textContent,
+    remaining: document.querySelector("#timerRemaining").textContent,
+  }));
+  expect(initial.elapsed).toMatch(/^\d{2}:\d{2}$/);
+  expect(initial.remaining).toMatch(/^\d{2}:\d{2}$/);
+
+  await page.locator("#playButton").click();
+  await page.waitForTimeout(1200);
+  const later = await page.evaluate(() => ({
+    elapsed: document.querySelector("#timerElapsed").textContent,
+    remaining: document.querySelector("#timerRemaining").textContent,
+  }));
+  // 播放后已用时间应增长、剩余时间应减少
+  expect(later.elapsed).not.toBe(initial.elapsed);
+});
+
+test("arrow keys adjust progress while playing instead of snapping back", async ({ page }) => {  await page.goto(appUrl);
 
   await page.locator("#toggleEditorButton").click();
   await page.locator("#scriptInput").fill(Array.from({ length: 200 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
@@ -314,6 +355,29 @@ test("clicking the progress slider keeps the editor drawer open", async ({ page 
 
   await page.locator("#previewSurface").click({ position: { x: 40, y: 40 } });
   await expect(page.locator("#scriptDrawer")).not.toHaveClass(/open/);
+});
+
+test("F key toggles native fullscreen via the Tauri bridge", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__invokes = [];
+    window.__TAURI__ = {
+      core: {
+        invoke: (cmd) => {
+          window.__invokes.push(cmd);
+          return Promise.resolve(cmd === "toggle_fullscreen");
+        },
+      },
+      event: { listen: () => Promise.resolve(() => {}) },
+    };
+  });
+
+  await page.goto(appUrl);
+  await page.locator("#stage").focus();
+  await page.keyboard.press("f");
+
+  // F 键应走原生窗口全屏命令，而不是元素 requestFullscreen
+  await expect.poll(() => page.evaluate(() => window.__invokes)).toContain("toggle_fullscreen");
+  await expect(page.locator(".app")).toHaveClass(/fullscreen-mode/);
 });
 
 test("sync protocol separates document snapshots from playback clocks", async ({ page }) => {

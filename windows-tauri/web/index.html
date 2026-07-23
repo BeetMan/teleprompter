@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="app-version" content="6.2">
+  <meta name="app-version" content="6.3">
   <title>提词器</title>
   <style>
     :root {
@@ -350,6 +350,21 @@
       flex: 1 1 auto;
       min-width: 160px;
       max-width: 480px;
+    }
+
+    .control-row-primary .timer-readout {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .control-row-primary .timer-readout .timer-sep {
+      opacity: .5;
     }
 
     .control-row-primary #toggleEditorButton {
@@ -1034,6 +1049,7 @@
             <label for="speedRange">速度 <span class="value" id="speedValue">40</span></label>
             <input id="speedRange" type="range" min="5" max="240" value="42">
           </div>
+          <div class="timer-readout" id="timerReadout" aria-label="用时与剩余时间"><span id="timerElapsed">--:--</span><span class="timer-sep">/</span><span id="timerRemaining">--:--</span></div>
           <button class="button" id="toggleEditorButton" type="button" aria-expanded="false">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 20h9"></path>
@@ -1181,6 +1197,8 @@
       browseRange: document.querySelector("#browseRange"),
       speedValue: document.querySelector("#speedValue"),
       browseValue: document.querySelector("#browseValue"),
+      timerElapsed: document.querySelector("#timerElapsed"),
+      timerRemaining: document.querySelector("#timerRemaining"),
       sizeValue: document.querySelector("#sizeValue"),
       lineValue: document.querySelector("#lineValue"),
       spacingValue: document.querySelector("#spacingValue"),
@@ -1258,6 +1276,16 @@
           tauriListen?.("output-window-status", (event) => callback(event.payload));
         },
       };
+      // 暴露与 Electron preload 一致的 nativeFullscreen 入口，使 F 键走原生窗口全屏
+      window.webkit = window.webkit || { messageHandlers: {} };
+      window.webkit.messageHandlers = window.webkit.messageHandlers || {};
+      if (!window.webkit.messageHandlers.nativeFullscreen) {
+        window.webkit.messageHandlers.nativeFullscreen = {
+          postMessage: () => {
+            tauriInvoke("toggle_fullscreen").catch(() => {});
+          },
+        };
+      }
     }
 
     // 非桌面壳环境（普通浏览器）：标记为网页预览版，
@@ -1876,6 +1904,35 @@
         elements.browseValue.textContent = `${percent}%`;
       }
       updateOutputRemaining(progress);
+      updateTimer(progress);
+    }
+
+    function formatClock(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        return "--:--";
+      }
+      const total = Math.round(seconds);
+      const minutes = Math.floor(total / 60);
+      const secs = total % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+
+    function updateTimer(progress = getScrollProgress()) {
+      if (!elements.timerElapsed || !elements.timerRemaining) {
+        return;
+      }
+      const speed = Number(elements.speedRange.value);
+      const distance = Math.abs(getEndScrollY() - getStartScrollY());
+      // 速度或稿件长度为 0 时无法估算时长
+      if (!speed || distance <= 1) {
+        elements.timerElapsed.textContent = "--:--";
+        elements.timerRemaining.textContent = "--:--";
+        return;
+      }
+      const totalSeconds = distance / speed;
+      const elapsed = clamp(progress, 0, 1) * totalSeconds;
+      elements.timerElapsed.textContent = formatClock(elapsed);
+      elements.timerRemaining.textContent = formatClock(totalSeconds - elapsed);
     }
 
     function getCompactLength() {
@@ -2021,6 +2078,7 @@
       if (playing) {
         const progress = getPlaybackProgress(Date.now());
         setScrollY(getScrollYFromProgress(progress), false);
+        updateTimer(progress);
         if (progress >= 1) {
           setPlaying(false);
         }
@@ -2220,12 +2278,18 @@
       }
     }
 
+    const SUPPORTED_IMPORT_EXTENSIONS = new Set(["txt", "md", "markdown", "docx"]);
+
     async function importFile(file) {
       if (!file || isOutputMode) {
         return;
       }
-      elements.saveStatus.textContent = `正在读取 ${file.name}`;
       const ext = file.name.split(".").pop().toLowerCase();
+      if (!SUPPORTED_IMPORT_EXTENSIONS.has(ext)) {
+        showStatusToast(`不支持的文件类型：.${ext || "未知"}，仅支持 txt、md、docx`);
+        return;
+      }
+      elements.saveStatus.textContent = `正在读取 ${file.name}`;
       try {
         const text = ext === "docx" ? await readDocx(file) : await readPlainText(file);
         elements.input.value = normalizeImportedText(text);

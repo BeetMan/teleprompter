@@ -163,6 +163,10 @@ fn move_output_window_to_monitor(
     output_window
         .set_fullscreen(true)
         .map_err(|error| error.to_string())?;
+    // 录课/直播时第二屏需盖在 PPT、OBS、Zoom 等窗口之上
+    output_window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -415,6 +419,15 @@ fn output_window_ready(app: AppHandle, app_state: State<AppState>) -> Result<(),
 }
 
 #[tauri::command]
+fn toggle_fullscreen(main_window: WebviewWindow) -> Result<bool, String> {
+    let next = !main_window.is_fullscreen().unwrap_or(false);
+    main_window
+        .set_fullscreen(next)
+        .map_err(|error| error.to_string())?;
+    Ok(next)
+}
+
+#[tauri::command]
 fn teleprompter_state(
     app: AppHandle,
     window: WebviewWindow,
@@ -441,6 +454,14 @@ fn teleprompter_state(
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 第二个实例启动时，聚焦已有主窗口
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.unminimize();
+                let _ = main_window.show();
+                let _ = main_window.set_focus();
+            }
+        }))
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             toggle_output_window,
@@ -448,7 +469,8 @@ pub fn run() {
             get_output_status,
             select_output_display,
             output_window_ready,
-            teleprompter_state
+            teleprompter_state,
+            toggle_fullscreen
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" {

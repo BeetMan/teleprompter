@@ -173,6 +173,8 @@ function createOutputWindow(requestedDisplayId) {
   });
 
   outputWindow.setMenuBarVisibility(false);
+  // 录课/直播时第二屏需盖在 PPT、OBS、Zoom 等窗口之上
+  outputWindow.setAlwaysOnTop(true, "screen-saver");
   outputWindow.loadFile(path.join(__dirname, "index.html"), {
     query: { mode: "output" },
   });
@@ -277,6 +279,24 @@ app.whenReady().then(() => {
   screen.on("display-removed", handleDisplayConfigurationChange);
   screen.on("display-metrics-changed", handleDisplayConfigurationChange);
 });
+
+// 单实例锁：第二个实例启动时聚焦已有窗口，避免抢占第二屏输出
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+      }
+      mainWindow.focus();
+    }
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
