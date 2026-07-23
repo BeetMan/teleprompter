@@ -1279,10 +1279,6 @@
         onOutputStatus: (callback) => {
           tauriListen?.("output-window-status", (event) => callback(event.payload));
         },
-        setGlobalShortcuts: (enabled) => tauriInvoke("set_global_shortcuts", { enabled }),
-        onGlobalShortcut: (callback) => {
-          tauriListen?.("global-shortcut", (event) => callback(event.payload));
-        },
       };
       // 暴露与 Electron preload 一致的 nativeFullscreen 入口，使 F 键走原生窗口全屏
       window.webkit = window.webkit || { messageHandlers: {} };
@@ -1362,11 +1358,30 @@
       return Math.round(elements.controlPanel.getBoundingClientRect().height);
     }
 
+    function getControlContentHeight() {
+      // 两行内容（主操作行 + 设置行）的自然高度 + 上下内边距
+      // 面板比内容高时 scrollHeight 会等于容器自身高度，不能直接当下限，需分别测量
+      const main = elements.controlMain;
+      const scrollH = Math.ceil(main.scrollHeight);
+      if (main.clientHeight >= scrollH) {
+        // 已恰好对齐内容（默认/等值时），直接取
+        return scrollH + 4;
+      }
+      // 面板比内容高（拖大过或曾存的大高度）：只量两组行的实际高度
+      const row1 = document.querySelector(".control-row-primary")?.offsetHeight || 0;
+      const row2 = document.querySelector(".control-row-settings")?.offsetHeight || 0;
+      const styles = getComputedStyle(main);
+      const gap = parseFloat(styles.rowGap) || 0;
+      const paddingV = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
+      return Math.ceil(row1 + row2 + gap + paddingV) + 4;
+    }
+
     function setControlHeight(height, persist = true) {
       const { minHeight, maxHeight } = getControlBounds();
-      // 下限取内容自然高度，避免拖小或旧存储值导致第二行被裁切（"折叠"）
-      const contentFloor = Math.ceil(elements.controlMain.scrollHeight) + 4;
-      const floor = Math.max(minHeight, contentFloor);
+      const contentHeight = getControlContentHeight();
+      // 下限取两行内容的自然高度，避免拖小或旧存储值导致第二行被裁切（"折叠"）
+      // 但上限只受 maxHeight 约束，不要把超高面板锁死在更高处
+      const floor = Math.max(minHeight, contentHeight);
       const nextHeight = clamp(Math.round(height), floor, maxHeight);
       elements.app.style.setProperty("--control-height", `${nextHeight}px`);
       requestAnimationFrame(() => resizePreviewSurface(true));
@@ -1468,37 +1483,6 @@
       elements.lightModeButton?.setAttribute("aria-pressed", String(displayMode === "light"));
     }
 
-    function handleGlobalShortcutAction(action) {
-      switch (action) {
-        case "toggle-play":
-          setPlaying(!playing);
-          break;
-        case "reset":
-          resetScroll();
-          publishState(true);
-          break;
-        case "fullscreen":
-          toggleFullscreen();
-          break;
-        case "nudge-up":
-          nudgeScrollByKeyboard(1, false);
-          publishState(true);
-          break;
-        case "nudge-down":
-          nudgeScrollByKeyboard(-1, false);
-          publishState(true);
-          break;
-        case "speed-up":
-          nudgeSpeedByKeyboard(1, false);
-          break;
-        case "speed-down":
-          nudgeSpeedByKeyboard(-1, false);
-          break;
-        default:
-          break;
-      }
-    }
-
     function setOutputActive(active) {
       const nextActive = Boolean(active);
       const changed = nextActive !== outputActive;
@@ -1506,10 +1490,6 @@
       elements.outputButton?.setAttribute("aria-pressed", String(outputActive));
       if (elements.outputLabel) {
         elements.outputLabel.textContent = outputActive ? "关闭第二屏" : "第二屏输出";
-      }
-      // 第二屏输出开启时注册全局快捷键，关闭时注销，避免影响其他应用输入
-      if (changed && !isOutputMode && window.teleprompterBridge?.setGlobalShortcuts) {
-        window.teleprompterBridge.setGlobalShortcuts(outputActive).catch(() => {});
       }
       if (!changed) {
         return;
@@ -2206,6 +2186,8 @@
       resizing = false;
       document.body.classList.remove("resizing-controls");
       elements.resizeHandle.releasePointerCapture?.(event.pointerId);
+      // 拖动过程 updateResize 已逐帧 clamp 到 [内容下限, maxHeight]，这里只持久化当前值，
+      // 避免再用 getBoundingClientRect 量一遍造成 ±1px 往返误差把高度推高
       setControlHeight(getControlHeight(), true);
       revealFullscreenControls();
     }
@@ -2512,7 +2494,12 @@
     elements.controlPanel.addEventListener("pointerenter", revealFullscreenControls);
     elements.controlPanel.addEventListener("focusin", revealFullscreenControls);
     window.addEventListener("resize", () => {
-      setControlHeight(getControlHeight(), false);
+      // 窗口变小导致 maxHeight 收缩时把超高面板压回；不要无条件用
+      // getControlHeight() 量一遍再 clamp，避免量取误差把高度推高
+      const { maxHeight } = getControlBounds();
+      if (getControlHeight() > maxHeight) {
+        setControlHeight(maxHeight, false);
+      }
       resizePreviewSurface(true);
     });
     elements.toggleEditorButton.addEventListener("click", () => {
@@ -2609,7 +2596,6 @@
     hydrate();
     window.teleprompterBridge?.onState?.(applyRemoteState);
     window.teleprompterBridge?.onOutputStatus?.(applyOutputStatus);
-    window.teleprompterBridge?.onGlobalShortcut?.(handleGlobalShortcutAction);
     if (isOutputMode) {
       window.teleprompterBridge?.outputWindowReady?.();
     } else {

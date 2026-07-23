@@ -42,6 +42,41 @@ test("control panel fits its content by default without an inner scrollbar", asy
   await expect.poll(() => page.evaluate(() => Math.round(document.querySelector(".control-panel").getBoundingClientRect().height))).toBe(220);
 });
 
+test("control panel height floors to content and large stored height does not creep up", async ({ page }) => {
+  await page.goto(appUrl);
+
+  // 旧的小高度（折叠）会被展开到内容高度
+  await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem("local-teleprompter-state-v2") || "{}");
+    state.controlHeight = 96;
+    localStorage.setItem("local-teleprompter-state-v2", JSON.stringify(state));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  const floored = await page.evaluate(() => ({
+    panelH: Math.round(document.querySelector(".control-panel").getBoundingClientRect().height),
+    noScroll: document.querySelector(".control-main").scrollHeight <= document.querySelector(".control-main").clientHeight + 1,
+  }));
+  expect(floored.noScroll).toBe(true);
+  expect(floored.panelH).toBeGreaterThan(96);
+
+  // 大高度保持，不会在 resize/刷新时继续被顶大
+  await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem("local-teleprompter-state-v2") || "{}");
+    state.controlHeight = 300;
+    localStorage.setItem("local-teleprompter-state-v2", JSON.stringify(state));
+  });
+  await page.reload();
+  await page.waitForTimeout(400);
+  const before = await page.evaluate(() => Math.round(document.querySelector(".control-panel").getBoundingClientRect().height));
+  expect(before).toBe(300);
+  // 触发一次窗口 resize（setControlHeight 重算），高度不应被推高
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(400);
+  const after = await page.evaluate(() => Math.round(document.querySelector(".control-panel").getBoundingClientRect().height));
+  expect(after).toBeLessThanOrEqual(before);
+});
+
 test("editing script and display sliders update without layout failure", async ({ page }) => {
   await page.goto(appUrl);
 
@@ -478,42 +513,6 @@ test("output applies ordered protocol messages and ignores stale playback revisi
     });
   });
   await expect.poll(() => page.locator("#browseValue").textContent()).toBe("25%");
-});
-
-test("global shortcut actions are dispatched and toggle with output state", async ({ page }) => {
-  await page.addInitScript(() => {
-    window.__calls = [];
-    window.__enabled = null;
-    window.teleprompterBridge = {
-      toggleOutputWindow: async () => ({ opened: true, displayCount: 2, outputWidth: 1280, outputHeight: 720 }),
-      closeOutputWindow: async () => ({ opened: false, displayCount: 2 }),
-      getOutputStatus: async () => ({ opened: false, displayCount: 2, outputWidth: 1280, outputHeight: 720, displays: [] }),
-      sendState: () => {},
-      onState: () => {},
-      onOutputStatus: () => {},
-      setGlobalShortcuts: (enabled) => { window.__enabled = enabled; return Promise.resolve(true); },
-      onGlobalShortcut: (cb) => { window.__dispatch = cb; },
-    };
-  });
-
-  await page.goto(appUrl);
-  await page.locator("#outputButton").click();
-
-  // 第二屏开启时应注册全局快捷键
-  await expect.poll(() => page.evaluate(() => window.__enabled)).toBe(true);
-
-  // 模拟全局按下 Space -> 播放
-  await page.evaluate(() => window.__dispatch("toggle-play"));
-  await expect(page.locator("#playLabel")).toHaveText("暂停");
-
-  // 模拟全局速度调快
-  const before = await page.locator("#speedRange").inputValue();
-  await page.evaluate(() => window.__dispatch("speed-up"));
-  await expect.poll(() => page.locator("#speedRange").inputValue()).not.toBe(before);
-
-  // 关闭第二屏 -> 注销全局快捷键
-  await page.locator("#outputButton").click();
-  await expect.poll(() => page.evaluate(() => window.__enabled)).toBe(false);
 });
 
 test("output mode ignores playback keys and only handles Escape", async ({ page }) => {

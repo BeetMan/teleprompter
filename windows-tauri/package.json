@@ -1,7 +1,7 @@
 {
   "name": "teleprompter-tauri",
   "productName": "提词器",
-  "version": "6.4.0",
+  "version": "6.4.1",
   "private": true,
   "description": "A lightweight Tauri desktop teleprompter app.",
   "scripts": {
