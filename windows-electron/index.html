@@ -49,10 +49,6 @@
       background: #000;
     }
 
-    .app.fullscreen-mode {
-      grid-template-rows: minmax(0, 1fr) var(--control-height, clamp(92px, 12vh, 112px));
-    }
-
     .app.fullscreen-fallback {
       position: fixed;
       inset: 0;
@@ -195,10 +191,6 @@
 
     body.empty-script .script {
       opacity: 0;
-    }
-
-    .fade {
-      display: none;
     }
 
     .script {
@@ -988,7 +980,6 @@
       <div class="guide" aria-hidden="true">
         <div class="guide-progress-dot" id="guideProgressDot"></div>
       </div>
-      <div class="fade" aria-hidden="true"></div>
       <div class="empty-state" id="emptyState">
         <h1 class="empty-title">准备一段稿件</h1>
         <p class="empty-copy">导入文档或直接输入文字，提词画面会在这里开始滚动。</p>
@@ -1251,6 +1242,7 @@
     let lastOutputWidth = 0;
     let lastOutputHeight = 0;
     let outputStatusRefreshPending = false;
+    let outputTogglePending = false;
     let statusToastTimer = 0;
 
     if (isOutputMode) {
@@ -2116,20 +2108,25 @@
     }
 
     async function toggleOutputWindow() {
-      if (!window.teleprompterBridge?.toggleOutputWindow) {
+      if (!window.teleprompterBridge?.toggleOutputWindow || outputTogglePending) {
         return;
       }
-      const result = await window.teleprompterBridge.toggleOutputWindow(preferredOutputDisplayId || undefined);
-      applyOutputStatus(result);
-      if (!isOutputMode) {
-        elements.stage.focus({ preventScroll: true });
-      }
-      window.setTimeout(() => {
+      outputTogglePending = true;
+      try {
+        const result = await window.teleprompterBridge.toggleOutputWindow(preferredOutputDisplayId || undefined);
+        applyOutputStatus(result);
         if (!isOutputMode) {
           elements.stage.focus({ preventScroll: true });
         }
-        publishState(true);
-      }, 220);
+        window.setTimeout(() => {
+          if (!isOutputMode) {
+            elements.stage.focus({ preventScroll: true });
+          }
+          publishState(true);
+        }, 220);
+      } finally {
+        outputTogglePending = false;
+      }
     }
 
     function startResize(event) {
@@ -2157,12 +2154,6 @@
       elements.resizeHandle.releasePointerCapture?.(event.pointerId);
       setControlHeight(getControlHeight(), true);
       revealFullscreenControls();
-    }
-
-    function decodeXmlEntities(value) {
-      const textarea = document.createElement("textarea");
-      textarea.innerHTML = value;
-      return textarea.value;
     }
 
     function normalizeImportedText(text) {

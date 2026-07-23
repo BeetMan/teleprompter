@@ -12,7 +12,7 @@
 
 ## 当前版本
 
-当前统一版本号为 `6.3.0`，记录在根目录的 `VERSION` 文件中。
+当前统一版本号为 `6.3.1`，记录在根目录的 `VERSION` 文件中。
 
 - **Tauri 版**：体积较小、启动较快，推荐日常使用。
 - **Electron 版**：兼容性较好，适合作为备用桌面版本。
@@ -96,7 +96,7 @@ npm run check
 版本号变更时使用同步脚本：
 
 ```powershell
-.\scripts\sync-version.ps1 -Version 6.3.0
+.\scripts\sync-version.ps1 -Version 6.3.1
 ```
 
 ## GitHub Actions 发布
@@ -104,8 +104,8 @@ npm run check
 发布流程由 `.github/workflows/release.yml` 管理。提交版本号同步改动后，推送符合 `vX.Y.Z` 格式的标签即可触发 Windows 自动构建：
 
 ```powershell
-git tag -a v6.3.0 -m "Release v6.3.0"
-git push origin v6.3.0
+git tag -a v6.3.1 -m "Release v6.3.1"
+git push origin v6.3.1
 ```
 
 Actions 会先执行项目检查，然后构建 Electron 便携版、Electron 安装版和 Tauri 安装版，生成 `SHA256SUMS.txt`，最后创建或更新对应的 GitHub Release。当前工作流默认生成未签名安装包；后续接入证书后，可在工作流中增加签名步骤。

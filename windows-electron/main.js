@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { app, BrowserWindow, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
 
 let mainWindow;
 let outputWindow;
@@ -8,6 +8,22 @@ let activeOutputDisplayId = null;
 let displayChangeTimer = null;
 let lastTeleprompterSnapshot = null;
 let lastTeleprompterPlayback = null;
+
+// 把外链交给系统浏览器打开，避免在应用内新开带渲染进程的窗口或导航走本地页面
+function constrainWebNavigation(webContents) {
+  webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+  webContents.on("will-navigate", (event, url) => {
+    if (/^https?:\/\//i.test(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+}
 
 function cacheTeleprompterState(message) {
   if (message?.kind === "snapshot") {
@@ -48,12 +64,13 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, "index.html"));
+  constrainWebNavigation(mainWindow.webContents);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -168,7 +185,7 @@ function createOutputWindow(requestedDisplayId) {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -178,6 +195,7 @@ function createOutputWindow(requestedDisplayId) {
   outputWindow.loadFile(path.join(__dirname, "index.html"), {
     query: { mode: "output" },
   });
+  constrainWebNavigation(outputWindow.webContents);
   const createdOutputWindow = outputWindow;
   const stateMarker = { receivedLiveState: false };
   createdOutputWindow.stateMarker = stateMarker;
