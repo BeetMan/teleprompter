@@ -370,20 +370,31 @@
 
     .settings-group {
       display: flex;
-      align-items: center;
-      gap: 4px;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      gap: 3px;
       flex: none;
     }
 
-    .settings-group .icon-toggle {
-      width: 34px;
-      min-height: 34px;
-      padding: 0;
+    .settings-group .stack-toggle {
+      min-height: 15px;
+      padding: 0 8px;
+      font-size: 11px;
+      line-height: 1;
+      justify-content: flex-start;
     }
 
-    .settings-group .icon-toggle .icon {
-      width: 18px;
-      height: 18px;
+    .settings-group .stack-toggle .icon {
+      width: 12px;
+      height: 12px;
+      flex: none;
+    }
+
+    .settings-group .stack-toggle span {
+      overflow: visible;
+      text-overflow: clip;
+      white-space: nowrap;
     }
 
     .control-row-settings .control-group {
@@ -1066,30 +1077,34 @@
 
         <div class="control-row control-row-settings">
           <div class="settings-group">
-            <button class="button toggle icon-toggle" id="mirrorXButton" type="button" aria-pressed="false" title="水平镜像" aria-label="水平镜像">
+            <button class="button toggle stack-toggle" id="mirrorXButton" type="button" aria-pressed="false" title="水平镜像" aria-label="水平镜像">
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M12 3v18"></path>
                 <path d="m8 7-5 5 5 5"></path>
                 <path d="m16 7 5 5-5 5"></path>
               </svg>
+              <span>水平镜像</span>
             </button>
-            <button class="button toggle icon-toggle" id="mirrorYButton" type="button" aria-pressed="false" title="垂直镜像" aria-label="垂直镜像">
+            <button class="button toggle stack-toggle" id="mirrorYButton" type="button" aria-pressed="false" title="垂直镜像" aria-label="垂直镜像">
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M3 12h18"></path>
                 <path d="m7 8 5-5 5 5"></path>
                 <path d="m7 16 5 5 5-5"></path>
               </svg>
+              <span>垂直镜像</span>
             </button>
-            <button class="button toggle icon-toggle" id="darkModeButton" type="button" aria-pressed="true" title="黑底白字" aria-label="黑底白字">
+            <button class="button toggle stack-toggle" id="darkModeButton" type="button" aria-pressed="true" title="黑底白字" aria-label="黑底白字">
               <svg class="icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"></path>
               </svg>
+              <span>黑底白字</span>
             </button>
-            <button class="button toggle icon-toggle" id="lightModeButton" type="button" aria-pressed="false" title="白底黑字" aria-label="白底黑字">
+            <button class="button toggle stack-toggle" id="lightModeButton" type="button" aria-pressed="false" title="白底黑字" aria-label="白底黑字">
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="4"></circle>
                 <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
               </svg>
+              <span>白底黑字</span>
             </button>
           </div>
           <div class="control-group" style="--cols: 3">
