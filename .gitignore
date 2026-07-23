@@ -35,3 +35,4 @@ release-assets/
 *.tmp
 *.temp
 .claude/settings.local.json
+tests/dbg*.spec.js
