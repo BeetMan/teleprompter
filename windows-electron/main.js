@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, screen, shell, globalShortcut } = require("electron");
 
 let mainWindow;
 let outputWindow;
@@ -264,6 +264,42 @@ function handleDisplayConfigurationChange() {
   }, 120);
 }
 
+// 提词时全局快捷键（仅第二屏输出开启时注册）
+const GLOBAL_SHORTCUT_BINDINGS = [
+  { accelerator: "Space", action: "toggle-play" },
+  { accelerator: "R", action: "reset" },
+  { accelerator: "F", action: "fullscreen" },
+  { accelerator: "Up", action: "nudge-up" },
+  { accelerator: "Down", action: "nudge-down" },
+  { accelerator: "Left", action: "speed-down" },
+  { accelerator: "Right", action: "speed-up" },
+];
+
+function registerGlobalShortcuts() {
+  for (const { accelerator, action } of GLOBAL_SHORTCUT_BINDINGS) {
+    try {
+      globalShortcut.register(accelerator, () => {
+        mainWindow?.webContents.send("global-shortcut", action);
+      });
+    } catch {
+      // 单个注册失败不阻断其余
+    }
+  }
+}
+
+function unregisterGlobalShortcuts() {
+  globalShortcut.unregisterAll();
+}
+
+ipcMain.handle("set-global-shortcuts", (_event, enabled) => {
+  if (enabled) {
+    registerGlobalShortcuts();
+  } else {
+    unregisterGlobalShortcuts();
+  }
+  return true;
+});
+
 ipcMain.handle("toggle-fullscreen", () => {
   if (mainWindow) {
     mainWindow.setFullScreen(!mainWindow.isFullScreen());
@@ -317,6 +353,7 @@ if (!singleInstanceLock) {
 }
 
 app.on("window-all-closed", () => {
+  unregisterGlobalShortcuts();
   if (process.platform !== "darwin") {
     app.quit();
   }
@@ -326,4 +363,8 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+app.on("will-quit", () => {
+  unregisterGlobalShortcuts();
 });

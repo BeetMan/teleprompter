@@ -6,6 +6,7 @@ use tauri::{
     AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, Position, Size, State,
     WebviewWindow,
 };
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[derive(Default)]
 struct AppState {
@@ -452,6 +453,44 @@ fn teleprompter_state(
     Ok(())
 }
 
+// 提词时全局快捷键（仅第二屏输出开启时注册）
+const GLOBAL_SHORTCUT_BINDINGS: &[(&str, &str)] = &[
+    ("Space", "toggle-play"),
+    ("KeyR", "reset"),
+    ("KeyF", "fullscreen"),
+    ("ArrowUp", "nudge-up"),
+    ("ArrowDown", "nudge-down"),
+    ("ArrowLeft", "speed-down"),
+    ("ArrowRight", "speed-up"),
+];
+
+fn register_global_shortcuts(app: &AppHandle) {
+    let manager = app.global_shortcut();
+    let _ = manager.unregister_all();
+    for (key, action) in GLOBAL_SHORTCUT_BINDINGS {
+        let action = action.to_string();
+        let _ = manager.on_shortcut(*key, move |app, _shortcut, event| {
+            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                let _ = app.emit("global-shortcut", action.clone());
+            }
+        });
+    }
+}
+
+fn unregister_global_shortcuts(app: &AppHandle) {
+    let _ = app.global_shortcut().unregister_all();
+}
+
+#[tauri::command]
+fn set_global_shortcuts(app: AppHandle, enabled: bool) -> Result<(), String> {
+    if enabled {
+        register_global_shortcuts(&app);
+    } else {
+        unregister_global_shortcuts(&app);
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -462,6 +501,7 @@ pub fn run() {
                 let _ = main_window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             toggle_output_window,
@@ -470,7 +510,8 @@ pub fn run() {
             select_output_display,
             output_window_ready,
             teleprompter_state,
-            toggle_fullscreen
+            toggle_fullscreen,
+            set_global_shortcuts
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" {

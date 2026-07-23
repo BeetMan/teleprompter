@@ -20,4 +20,8 @@ contextBridge.exposeInMainWorld("teleprompterBridge", {
   onOutputStatus: (callback) => {
     ipcRenderer.on("output-window-status", (_event, state) => callback(state));
   },
+  setGlobalShortcuts: (enabled) => ipcRenderer.invoke("set-global-shortcuts", Boolean(enabled)),
+  onGlobalShortcut: (callback) => {
+    ipcRenderer.on("global-shortcut", (_event, action) => callback(action));
+  },
 });
