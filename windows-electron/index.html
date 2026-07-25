@@ -406,19 +406,6 @@
       padding: 4px 7px;
     }
 
-    .control-row-settings .mirror-note {
-      display: none;
-      flex: none;
-      color: var(--accent-2);
-      font-size: 11px;
-      line-height: 1.25;
-      white-space: nowrap;
-    }
-
-    .control-row-settings .mirror-note:not(:empty) {
-      display: block;
-    }
-
     .control-main > .shortcut-hint {
       position: absolute;
       top: -20px;
@@ -1140,7 +1127,6 @@
               <input id="guideRange" type="range" min="25" max="75" value="50" step="1">
             </div>
           </div>
-          <div class="mirror-note" id="mirrorNote"></div>
         </div>
         <div class="shortcut-hint">Space 播放 · R 重置 · F 全屏 · ↑↓ 进度 · ←→ 速度</div>
       </div>
@@ -1230,7 +1216,6 @@
       mirrorYButton: document.querySelector("#mirrorYButton"),
       darkModeButton: document.querySelector("#darkModeButton"),
       lightModeButton: document.querySelector("#lightModeButton"),
-      mirrorNote: document.querySelector("#mirrorNote"),
       toggleEditorButton: document.querySelector("#toggleEditorButton"),
       scriptDrawer: document.querySelector("#scriptDrawer"),
       importButton: document.querySelector("#importButton"),
@@ -1518,7 +1503,6 @@
       if (!changed) {
         return;
       }
-      updateMirrorNote();
       applyControls();
       publishState(true);
     }
@@ -1636,19 +1620,6 @@
         await refreshOutputStatus();
       }
       elements.stage.focus({ preventScroll: true });
-    }
-
-    function updateMirrorNote() {
-      if (!elements.mirrorNote) {
-        return;
-      }
-      if ((mirrorX === 1 && mirrorY === 1)) {
-        elements.mirrorNote.textContent = "";
-      } else if (outputActive && !isOutputMode) {
-        elements.mirrorNote.textContent = "镜像仅作用于第二屏，主屏保持正常显示";
-      } else {
-        elements.mirrorNote.textContent = "镜像正在作用于当前提词画面";
-      }
     }
 
     function updateEmptyState() {
@@ -1891,7 +1862,6 @@
       elements.mirrorYButton.setAttribute("aria-pressed", String(mirrorY === -1));
       elements.browseRange?.classList.toggle("mirrored-order", isBrowseProgressMirrored());
       setDisplayMode(displayMode);
-      updateMirrorNote();
       resizePreviewSurface(true, preservedProgress, true);
       requestAnimationFrame(updateProgress);
       saveState();
@@ -2570,11 +2540,12 @@
         }
         return;
       }
-      // 焦点在滑块、下拉框、按钮等表单控件上时，把按键留给控件的原生行为
+      // 只有正在输入文字的控件（文本框、下拉框）才把按键留给控件本身；
+      // 按钮和滑块获得焦点时不拦截，让空格/R/F/方向键等全局快捷键始终可用
       const shortcutTarget = event.target;
-      const editing = shortcutTarget instanceof HTMLElement
-        && shortcutTarget.closest("input:not([type='range']), select, textarea, button");
-      if (editing) {
+      const typing = shortcutTarget instanceof HTMLElement
+        && shortcutTarget.closest("input:not([type='range']):not([type='file']), select, textarea");
+      if (typing) {
         return;
       }
       if (event.code === "Space") {

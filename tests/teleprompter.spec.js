@@ -313,20 +313,20 @@ test("editing the script preserves the current scroll progress", async ({ page }
   await expect(page.locator("#browseValue")).toHaveText("75%");
 });
 
-test("global shortcuts leave focused form controls alone", async ({ page }) => {
+test("global shortcuts work even when a button or slider is focused", async ({ page }) => {
   await page.goto(appUrl);
 
-  const speed = page.locator("#speedRange");
-  const initialSpeed = await speed.inputValue();
-  await speed.focus();
-  await speed.press("ArrowRight");
-  await expect.poll(() => speed.inputValue()).not.toBe(initialSpeed);
-
+  // 焦点在按钮上时，空格触发播放而不是按钮点击
   await page.locator("#importButton").focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator("#playLabel")).toHaveText("暂停");
+
+  await page.locator("#stage").focus();
   await page.keyboard.press("Space");
   await expect(page.locator("#playLabel")).toHaveText("开始");
 
-  await page.locator("#stage").focus();
+  // 焦点在镜像按钮上时，空格仍然触发播放（不是再次切换镜像）
+  await page.locator("#mirrorXButton").focus();
   await page.keyboard.press("Space");
   await expect(page.locator("#playLabel")).toHaveText("暂停");
 });
