@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -137,6 +138,59 @@ fn emit_output_status(app: &AppHandle, status: &OutputWindowStatus) -> Result<()
         .map_err(|error| error.to_string())
 }
 
+// 显示器配置指纹：id + 位置 + 尺寸。任一变化（增减、拔插、改分辨率）都会改变签名。
+fn monitor_signature(monitors: &[Monitor]) -> String {
+    monitors
+        .iter()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            format!(
+                "{}|{}|{}|{}|{}",
+                monitor_id(monitor),
+                position.x,
+                position.y,
+                size.width,
+                size.height
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+// Tauri 2 没有原生显示器变更事件，用轻量轮询对齐 Electron 的 display-added/removed/metrics-changed。
+// 签名变化时重新 reconcile（断开的输出屏会被收起）并主动推送状态给主窗口，不依赖前端 2 秒轮询。
+fn spawn_display_watcher(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last_signature: Option<String> = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(1500));
+            let main_window = match app.get_webview_window("main") {
+                Some(window) => window,
+                None => continue,
+            };
+            let app_state = app.state::<AppState>();
+            let (monitors, _primary_position) = match monitor_context(&main_window) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            let signature = monitor_signature(&monitors);
+            if last_signature.is_none() {
+                // 首拍只采样基线，避免启动时重复推送
+                last_signature = Some(signature);
+                continue;
+            }
+            if last_signature.as_deref() == Some(signature.as_str()) {
+                continue;
+            }
+            last_signature = Some(signature);
+            if let Ok(status) = inspect_output_status(&app, &main_window, app_state.inner(), None) {
+                let _ = emit_output_status(&app, &status);
+            }
+        }
+    });
+}
+
 fn output_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     app.get_webview_window("output")
         .ok_or_else(|| "输出窗口不可用".to_string())
@@ -170,16 +224,21 @@ fn move_output_window_to_monitor(
     Ok(())
 }
 
-fn inspect_output_status(
+#[derive(Default)]
+struct ReconcileOutcome {
+    opened: bool,
+    disconnected: bool,
+}
+
+fn reconcile_output_display(
     app: &AppHandle,
     main_window: &WebviewWindow,
     app_state: &AppState,
-    requested_notice: Option<String>,
-) -> Result<OutputWindowStatus, String> {
-    let (monitors, primary_position) = monitor_context(main_window)?;
+    monitors: &[Monitor],
+) -> Result<ReconcileOutcome, String> {
     let available_ids: Vec<String> = monitors.iter().map(monitor_id).collect();
-    let mut selected_display_id = read_display_id(&app_state.selected_display_id)?;
-    let mut active_display_id = read_display_id(&app_state.active_output_display_id)?;
+    let selected_display_id = read_display_id(&app_state.selected_display_id)?;
+    let active_display_id = read_display_id(&app_state.active_output_display_id)?;
     let output_window = output_window(app).ok();
     let mut opened = output_window
         .as_ref()
@@ -192,10 +251,8 @@ fn inspect_output_status(
         && active_display_id
             .as_ref()
             .is_some_and(|id| !available_ids.contains(id));
-    let disconnected = selection_disconnected || output_disconnected;
 
     if selection_disconnected {
-        selected_display_id = None;
         write_display_id(&app_state.selected_display_id, None)?;
     }
     if output_disconnected {
@@ -203,13 +260,28 @@ fn inspect_output_status(
             let _ = window.set_fullscreen(false);
             let _ = window.hide();
         }
-        active_display_id = None;
         write_display_id(&app_state.active_output_display_id, None)?;
         let _ = main_window.set_focus();
         opened = false;
     }
 
-    let target_display_id = if opened {
+    Ok(ReconcileOutcome {
+        opened,
+        disconnected: selection_disconnected || output_disconnected,
+    })
+}
+
+fn inspect_output_status(
+    app: &AppHandle,
+    main_window: &WebviewWindow,
+    app_state: &AppState,
+    requested_notice: Option<String>,
+) -> Result<OutputWindowStatus, String> {
+    let (monitors, primary_position) = monitor_context(main_window)?;
+    let outcome = reconcile_output_display(app, main_window, app_state, &monitors)?;
+    let active_display_id = read_display_id(&app_state.active_output_display_id)?;
+    let selected_display_id = read_display_id(&app_state.selected_display_id)?;
+    let target_display_id = if outcome.opened {
         active_display_id.as_deref()
     } else {
         selected_display_id.as_deref()
@@ -218,8 +290,12 @@ fn inspect_output_status(
         &monitors,
         primary_position,
         target_display_id,
-        opened,
-        requested_notice.or_else(|| disconnected.then(|| "display-disconnected".to_string())),
+        outcome.opened,
+        requested_notice.or_else(|| {
+            outcome
+                .disconnected
+                .then(|| "display-disconnected".to_string())
+        }),
     ))
 }
 
@@ -463,6 +539,10 @@ pub fn run() {
             }
         }))
         .manage(AppState::default())
+        .setup(|app| {
+            spawn_display_watcher(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             toggle_output_window,
             close_output_window,

@@ -3469,7 +3469,7 @@ dependencies = [
 
 [[package]]
 name = "teleprompter_tauri"
-version = "6.4.0"
+version = "6.4.4"
 dependencies = [
  "serde",
  "serde_json",
