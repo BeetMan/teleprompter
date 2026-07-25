@@ -309,7 +309,10 @@
       display: grid;
       grid-template-rows: auto auto;
       gap: 4px;
-      align-items: stretch;
+      /* 两行不拉伸、按内容尺寸排布：面板拖大时内容停留在顶部，
+         也让 offsetHeight 始终等于内容自然高度（拖动下限据此计算） */
+      align-items: start;
+      align-content: start;
       padding: 6px 10px;
       min-width: 0;
       overflow-y: auto;
@@ -369,25 +372,25 @@
     }
 
     .settings-group {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      justify-content: center;
-      gap: 3px;
+      display: grid;
+      grid-template-columns: repeat(2, auto);
+      align-content: center;
+      gap: 5px;
       flex: none;
     }
 
     .settings-group .stack-toggle {
-      min-height: 15px;
-      padding: 0 8px;
-      font-size: 11px;
-      line-height: 1;
+      min-height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
       justify-content: flex-start;
+      white-space: nowrap;
+      flex: none;
     }
 
     .settings-group .stack-toggle .icon {
-      width: 12px;
-      height: 12px;
+      width: 15px;
+      height: 15px;
       flex: none;
     }
 
@@ -1246,6 +1249,8 @@
     let dragDepth = 0;
     let fullscreenCollapseTimer = 0;
     let resizing = false;
+    let resizeStartY = 0;
+    let resizeStartHeight = 0;
     let seekingProgress = false;
     let activeTooltipTarget = null;
     const params = new URLSearchParams(window.location.search);
@@ -1373,30 +1378,34 @@
       return Math.round(elements.controlPanel.getBoundingClientRect().height);
     }
 
-    function getControlContentHeight() {
-      // 两行内容（主操作行 + 设置行）的自然高度 + 上下内边距
-      // 面板比内容高时 scrollHeight 会等于容器自身高度，不能直接当下限，需分别测量
-      const main = elements.controlMain;
-      const scrollH = Math.ceil(main.scrollHeight);
-      if (main.clientHeight >= scrollH) {
-        // 已恰好对齐内容（默认/等值时），直接取
-        return scrollH + 4;
-      }
-      // 面板比内容高（拖大过或曾存的大高度）：只量两组行的实际高度
-      const row1 = document.querySelector(".control-row-primary")?.offsetHeight || 0;
-      const row2 = document.querySelector(".control-row-settings")?.offsetHeight || 0;
-      const styles = getComputedStyle(main);
+    // 控制栏两行内容的自然高度（只在布局稳定时量取并缓存，拖动过程直接用缓存值，
+    // 避免拖动中用 getBoundingClientRect 同时受面板位置和内容位置变化影响而抖动）
+    let naturalControlHeight = 0;
+
+    function measureControlContentHeight() {
+      // 面板内容自然高度 = 两行实际高度 + 行间距 + control-main 内边距 + 面板边框。
+      // 不用 scrollHeight：它会包含 absolute 定位的 sr-only/shortcut-hint 的超出部分，不可靠。
+      const row1 = document.querySelector(".control-row-primary");
+      const row2 = document.querySelector(".control-row-settings");
+      const styles = getComputedStyle(elements.controlMain);
+      const panelStyles = getComputedStyle(elements.controlPanel);
       const gap = parseFloat(styles.rowGap) || 0;
       const paddingV = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
-      return Math.ceil(row1 + row2 + gap + paddingV) + 4;
+      const borderV = (parseFloat(panelStyles.borderTopWidth) || 0) + (parseFloat(panelStyles.borderBottomWidth) || 0);
+      return Math.ceil((row1?.offsetHeight || 0) + (row2?.offsetHeight || 0) + gap + paddingV + borderV);
+    }
+
+    function refreshNaturalControlHeight() {
+      const measured = measureControlContentHeight();
+      if (measured > 0) {
+        naturalControlHeight = measured;
+      }
+      return naturalControlHeight;
     }
 
     function setControlHeight(height, persist = true) {
       const { minHeight, maxHeight } = getControlBounds();
-      const contentHeight = getControlContentHeight();
-      // 下限取两行内容的自然高度，避免拖小或旧存储值导致第二行被裁切（"折叠"）
-      // 但上限只受 maxHeight 约束，不要把超高面板锁死在更高处
-      const floor = Math.max(minHeight, contentHeight);
+      const floor = Math.max(minHeight, naturalControlHeight || minHeight);
       const nextHeight = clamp(Math.round(height), floor, maxHeight);
       elements.app.style.setProperty("--control-height", `${nextHeight}px`);
       requestAnimationFrame(() => resizePreviewSurface(true));
@@ -2181,6 +2190,8 @@
     function startResize(event) {
       event.preventDefault();
       resizing = true;
+      resizeStartY = event.clientY;
+      resizeStartHeight = getControlHeight();
       document.body.classList.add("resizing-controls");
       elements.resizeHandle.setPointerCapture?.(event.pointerId);
       revealFullscreenControls();
@@ -2190,7 +2201,9 @@
       if (!resizing) {
         return;
       }
-      const nextHeight = window.innerHeight - event.clientY;
+      // 高度 = 起始高度 - 鼠标相对起始位置的垂直位移（往上拖变大、往下拖变小），
+      // 与手柄当前位置无关，避免面板移动反向影响计算
+      const nextHeight = resizeStartHeight - (event.clientY - resizeStartY);
       setControlHeight(nextHeight, false);
     }
 
@@ -2427,14 +2440,6 @@
       }
     }
 
-    function fitControlHeightToContent() {
-      // 把控制栏高度调整为恰好容纳两行内容（无内滚动条），仅在未存用户高度时作为默认值
-      const { maxHeight } = getControlBounds();
-      // 直接按当前布局量内容，不先把高度撑到 max（撑高会让 scrollHeight 虚涨）
-      const natural = Math.ceil(elements.controlMain.scrollHeight) + 4;
-      setControlHeight(Math.min(natural, maxHeight), true);
-    }
-
     function hydrate() {
       const state = loadState();
       elements.input.value = state.text;
@@ -2454,16 +2459,17 @@
       applyControls();
       resetScroll();
       const storedControlHeight = Number(state.controlHeight);
-      const isUserHeight = storedControlHeight > 0
-        && Math.abs(storedControlHeight - defaultState.controlHeight) >= 2
-        && Math.abs(storedControlHeight - 170) >= 2;
-      if (isUserHeight) {
-        // 用户拖过高度，沿用
-        setControlHeight(storedControlHeight, false);
-      } else {
-        // 默认状态：测量内容自然高度，完整展开两行
-        requestAnimationFrame(fitControlHeightToContent);
-      }
+      // 布局稳定后量内容自然高度缓存起来，再决定面板高度：
+      // 旧的小高度会被下限撑开（修复"折叠"），旧的大高度沿用但不超过 maxHeight。
+      // 双 rAF 等字体/滑块等布局完成，避免 scrollHeight 量到未稳定的中间值
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        refreshNaturalControlHeight();
+        if (storedControlHeight > 0) {
+          setControlHeight(storedControlHeight, false);
+        } else {
+          setControlHeight(naturalControlHeight, true);
+        }
+      }));
     }
 
     elements.input.addEventListener("input", updateText);

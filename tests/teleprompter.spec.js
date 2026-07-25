@@ -428,6 +428,8 @@ test("sync protocol separates document snapshots from playback clocks", async ({
   await page.goto(appUrl);
   await expect.poll(() => page.evaluate(() => window.__states.some((message) => message.kind === "snapshot"))).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__states.some((message) => message.kind === "playback"))).toBe(true);
+  // 等初始 publish 完成（双 rAF 后的 hydrate），再清空并开始测试
+  await page.waitForTimeout(300);
 
   await page.evaluate(() => { window.__states = []; });
   await page.locator("#playButton").click();
