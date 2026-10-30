@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const appPath = path.resolve(__dirname, "../windows-tauri/web/index.html");
+const appPath = path.resolve(__dirname, "../tauri/web/index.html");
 const appUrl = pathToFileURL(appPath).toString();
 
 test("main UI renders the preview and controls", async ({ page }) => {

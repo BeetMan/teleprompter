@@ -196,27 +196,47 @@ fn output_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .ok_or_else(|| "输出窗口不可用".to_string())
 }
 
+// macOS 原生全屏会新建独立 Space 并播放过渡动画，第二屏会被切走；
+// simple fullscreen 直接铺满当前显示器，其他平台上等同 set_fullscreen。
+fn set_output_fullscreen(output_window: &WebviewWindow, enable: bool) -> Result<(), String> {
+    output_window
+        .set_simple_fullscreen(enable)
+        .map_err(|error| error.to_string())
+}
+
+// macOS 窗口坐标是逻辑坐标，混合缩放（Retina + 外接屏）时需按目标显示器自己的缩放换算；
+// Windows / Linux 直接使用物理坐标。
+fn monitor_geometry(monitor: &Monitor) -> (Position, Size) {
+    let position = *monitor.position();
+    let size = *monitor.size();
+    if cfg!(target_os = "macos") {
+        let scale = monitor.scale_factor();
+        (
+            Position::Logical(position.to_logical(scale)),
+            Size::Logical(size.to_logical(scale)),
+        )
+    } else {
+        (
+            Position::Physical(PhysicalPosition::new(position.x, position.y)),
+            Size::Physical(PhysicalSize::new(size.width, size.height)),
+        )
+    }
+}
+
 fn move_output_window_to_monitor(
     output_window: &WebviewWindow,
     monitor: &Monitor,
 ) -> Result<(), String> {
-    let position = monitor.position();
-    let size = monitor.size();
+    let (position, size) = monitor_geometry(monitor);
+    set_output_fullscreen(output_window, false)?;
     output_window
-        .set_fullscreen(false)
+        .set_position(position)
         .map_err(|error| error.to_string())?;
     output_window
-        .set_position(Position::Physical(PhysicalPosition::new(
-            position.x, position.y,
-        )))
-        .map_err(|error| error.to_string())?;
-    output_window
-        .set_size(Size::Physical(PhysicalSize::new(size.width, size.height)))
+        .set_size(size)
         .map_err(|error| error.to_string())?;
     output_window.show().map_err(|error| error.to_string())?;
-    output_window
-        .set_fullscreen(true)
-        .map_err(|error| error.to_string())?;
+    set_output_fullscreen(output_window, true)?;
     // 录课/直播时第二屏需盖在 PPT、OBS、Zoom 等窗口之上
     output_window
         .set_always_on_top(true)
@@ -257,7 +277,7 @@ fn reconcile_output_display(
     }
     if output_disconnected {
         if let Some(window) = output_window.as_ref() {
-            let _ = window.set_fullscreen(false);
+            let _ = set_output_fullscreen(window, false);
             let _ = window.hide();
         }
         write_display_id(&app_state.active_output_display_id, None)?;
@@ -360,9 +380,7 @@ fn toggle_output_window(
     let output_window = output_window(&app)?;
 
     if output_window.is_visible().unwrap_or(false) {
-        output_window
-            .set_fullscreen(false)
-            .map_err(|error| error.to_string())?;
+        set_output_fullscreen(&output_window, false)?;
         output_window.hide().map_err(|error| error.to_string())?;
         write_display_id(&app_state.active_output_display_id, None)?;
         set_output_received_live_state(&app_state, false)?;
@@ -418,9 +436,7 @@ fn close_output_window(
     app_state: State<AppState>,
 ) -> Result<OutputWindowStatus, String> {
     if let Ok(output_window) = output_window(&app) {
-        output_window
-            .set_fullscreen(false)
-            .map_err(|error| error.to_string())?;
+        set_output_fullscreen(&output_window, false)?;
         output_window.hide().map_err(|error| error.to_string())?;
     }
     write_display_id(&app_state.active_output_display_id, None)?;

@@ -4,7 +4,10 @@
   "version": "6.5.0",
   "description": "Development checks for the teleprompter desktop project.",
   "scripts": {
-    "check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-project.ps1",
+    "check": "node scripts/project.mjs check",
+    "check:version": "node scripts/project.mjs check-version",
+    "sync:frontend": "node scripts/project.mjs sync-frontend",
+    "sync:version": "node scripts/project.mjs sync-version",
     "test": "playwright test"
   },
   "devDependencies": {

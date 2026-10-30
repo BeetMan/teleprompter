@@ -1227,6 +1227,8 @@
 
     const storageKey = "local-teleprompter-state-v2";
     let scrollY = 0;
+    // 每次 setScrollY 自增，供延迟执行的布局恢复判断期间是否已有更新的定位
+    let scrollGeneration = 0;
     let playing = false;
     let mirrorX = 1;
     let mirrorY = 1;
@@ -1409,10 +1411,14 @@
       const rect = elements.stage.getBoundingClientRect();
       const scale = Math.min(rect.width / previewBaseWidth, rect.height / previewBaseHeight);
       elements.previewSurface.style.setProperty("--preview-scale", Math.max(0.01, scale));
+      const queuedScrollGeneration = scrollGeneration;
       const applyProgress = () => {
         resizeFrame = 0;
         if (preserveProgress) {
-          setScrollY(getScrollYFromProgress(progress));
+          // 排队这一帧期间如果已有更新的定位（例如第二屏刚收到远程播放状态），以新定位为准，
+          // 否则会用排队时记下的旧进度把位置和播放锚点拉回去
+          const nextProgress = scrollGeneration === queuedScrollGeneration ? progress : getScrollProgress();
+          setScrollY(getScrollYFromProgress(nextProgress));
         } else {
           updateProgress();
         }
@@ -1815,9 +1821,13 @@
       elements.saveStatus.textContent = "正在保存...";
       if (preservedProgress !== null) {
         setPlaybackAnchor(preservedProgress);
-        // 最后一行输入的高度要等下一帧才稳定，恢复也放到第二帧执行
+        // 最后一行输入的高度要等下一帧才稳定，恢复也放到第二帧执行；
+        // 期间若已重新定位（导入后回到顶部、第二屏收到远程状态等），不再用旧进度覆盖
+        const queuedScrollGeneration = scrollGeneration;
         requestAnimationFrame(() => requestAnimationFrame(() => {
-          setScrollY(getScrollYFromProgress(preservedProgress));
+          if (scrollGeneration === queuedScrollGeneration) {
+            setScrollY(getScrollYFromProgress(preservedProgress));
+          }
         }));
       }
       window.clearTimeout(updateText.saveTimer);
@@ -1994,6 +2004,7 @@
       const start = getStartScrollY();
       const end = getEndScrollY();
       scrollY = clamp(value, Math.min(start, end), Math.max(start, end));
+      scrollGeneration += 1;
       // 暂停时滚动位置就是播放锚点，避免后续基于锚点的计算（编辑恢复等）用过期值
       if (!playing && !applyingRemoteState) {
         playbackAnchorProgress = getScrollProgress();
