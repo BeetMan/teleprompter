@@ -1,6 +1,6 @@
 # 提词器 Tauri 版
 
-Tauri 版是提词器的轻量桌面版本，当前产品版本为 `6.1.5`。它复用网页界面，并通过 Rust/Tauri 实现第二屏窗口、双屏状态同步、文件导入和程序生命周期管理。
+Tauri 版是提词器的主力桌面版本，支持 Windows、macOS 和 Linux，版本号以仓库根目录的 `VERSION` 为准。它复用网页界面，并通过 Rust/Tauri 实现第二屏窗口、双屏状态同步、文件导入和程序生命周期管理。
 
 ## 功能
 
@@ -15,42 +15,27 @@ Tauri 版是提词器的轻量桌面版本，当前产品版本为 `6.1.5`。它
 
 ## 环境要求
 
-- Windows 10 或更高版本
-- Microsoft Edge WebView2 Runtime
 - Node.js 20 LTS 或 22 LTS
 - Rust 稳定版工具链
-
-确认环境：
-
-```powershell
-node --version
-npm --version
-rustc --version
-cargo --version
-```
+- Windows：WebView2 Runtime
+- macOS：Xcode Command Line Tools
+- Linux：`libwebkit2gtk-4.1-dev`、`libappindicator3-dev`、`librsvg2-dev`、`patchelf`
 
 ## 开发运行
 
-```powershell
+```bash
 npm install
 npm run dev
 ```
 
-## Windows 打包
+## 打包
 
-```powershell
+```bash
 npm install
 npm run build
 ```
 
-主要构建结果：
-
-```text
-src-tauri/target/release/teleprompter_tauri.exe
-src-tauri/target/release/bundle/nsis/提词器_6.1.5_x64-setup.exe
-```
-
-当前构建默认未配置 Windows 代码签名证书，部分设备可能显示 Smart App Control 或 SmartScreen 警告。
+构建结果位于 `src-tauri/target/release/bundle/`。各平台的格式、通用 macOS 包和签名说明见 [打包说明](../docs/打包说明.md)。
 
 ## 目录说明
 

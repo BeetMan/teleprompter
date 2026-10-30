@@ -14,12 +14,21 @@
 
 当前统一版本号为 `6.5.0`，记录在根目录的 `VERSION` 文件中。
 
-- **Tauri 版**：体积较小、启动较快，推荐日常使用。
-- **Electron 版**：兼容性较好，适合作为备用桌面版本。
+- **Tauri 版（主力维护）**：支持 Windows、macOS、Linux，体积较小、启动较快，推荐日常使用。
+- **Electron 版（备用）**：仅提供 Windows 版本，功能与 Tauri 版保持一致，不再新增平台。
+
+| 平台 | 安装包 |
+| --- | --- |
+| Windows 10 / 11（x64） | Tauri 安装版 `.exe`，或 Electron 便携版 / 安装版 |
+| macOS 10.15+（Apple 芯片与 Intel 通用） | Tauri `.dmg` |
+| Linux（x86_64） | Tauri `.AppImage` 或 `.deb` |
 
 最新安装包可在 [GitHub Releases](https://github.com/BeetMan/teleprompter/releases/latest) 获取。
 
-当前发布包尚未配置 Windows 代码签名证书。部分 Windows 设备可能显示 Smart App Control 或 SmartScreen 警告，这是发布者身份未经过证书验证导致的安全提示，不代表项目必然包含恶意代码。正式分发前建议核对 Release 中的 SHA256 校验文件，并优先使用 Tauri 版本。
+当前发布包尚未配置代码签名证书，这是发布者身份未经过证书验证导致的安全提示，不代表项目必然包含恶意代码。正式分发前建议核对 Release 中的 SHA256 校验文件。
+
+- **Windows**：部分设备可能显示 Smart App Control 或 SmartScreen 警告。
+- **macOS**：首次打开如提示"已损坏"或"无法验证开发者"，将应用拖入"应用程序"后在终端执行 `xattr -cr /Applications/提词器.app`，或在"系统设置 → 隐私与安全性"中选择"仍要打开"。
 
 ## 主要功能
 
@@ -38,25 +47,29 @@
 
 ### Tauri 版
 
-环境要求：Node.js、Rust 稳定版和 Windows WebView2 Runtime。
+环境要求：Node.js、Rust 稳定版，以及各平台的 WebView 依赖：
 
-```powershell
-cd windows-tauri
+- **Windows**：WebView2 Runtime（Windows 11 已内置）
+- **macOS**：Xcode Command Line Tools（`xcode-select --install`）
+- **Linux**：`libwebkit2gtk-4.1-dev`、`libappindicator3-dev`、`librsvg2-dev`、`patchelf`
+
+```bash
+cd tauri
 npm install
 npm run dev
 ```
 
-构建 Windows 安装包：
+构建当前平台的安装包：
 
-```powershell
+```bash
 npm run build
 ```
 
-主要输出位于 `windows-tauri/src-tauri/target/release/bundle/nsis/`。
+输出位于 `tauri/src-tauri/target/release/bundle/`，按平台分别生成 `nsis/`、`dmg/`、`macos/`、`deb/`、`appimage/` 等目录。
 
 ### Electron 版
 
-环境要求：Node.js。
+环境要求：Windows 与 Node.js。
 
 ```powershell
 cd windows-electron
@@ -84,39 +97,40 @@ npm run dist:win -- --config.win.signAndEditExecutable=false
 
 ## 开发检查
 
-根目录安装测试依赖后运行：
+维护脚本基于 Node.js，Windows、macOS、Linux 通用。根目录安装测试依赖后运行：
 
-```powershell
+```bash
 npm install
+npx playwright install chromium
 npm run check
 ```
 
-检查会验证版本号、Tauri/Electron 前端一致性，并运行 Playwright 测试。
+检查会把 Tauri 前端同步到 Electron，验证版本号和前端一致性，并运行 Playwright 测试。
 
 版本号变更时使用同步脚本：
 
-```powershell
-.\scripts\sync-version.ps1 -Version 6.5.0
+```bash
+npm run sync:version -- 6.5.0
 ```
 
 ## GitHub Actions 发布
 
-发布流程由 `.github/workflows/release.yml` 管理。提交版本号同步改动后，推送符合 `vX.Y.Z` 格式的标签即可触发 Windows 自动构建：
+发布流程由 `.github/workflows/release.yml` 管理。提交版本号同步改动后，推送符合 `vX.Y.Z` 格式的标签即可触发自动构建：
 
-```powershell
+```bash
 git tag -a v6.5.0 -m "Release v6.5.0"
 git push origin v6.5.0
 ```
 
-Actions 会先执行项目检查，然后构建 Electron 便携版、Electron 安装版和 Tauri 安装版，生成 `SHA256SUMS.txt`，最后创建或更新对应的 GitHub Release。当前工作流默认生成未签名安装包；后续接入证书后，可在工作流中增加签名步骤。
+Actions 会先在 Linux 上执行项目检查，然后并行构建 Tauri 的 Windows 安装版、macOS 通用 `.dmg`、Linux `.deb` 和 `.AppImage`，以及 Electron Windows 便携版和安装版，最后生成 `SHA256SUMS.txt` 并创建或更新对应的 GitHub Release。当前工作流默认生成未签名安装包；后续接入证书后，可在工作流中增加签名步骤。
 
 ## 项目结构
 
 ```text
 .
-├── windows-tauri/       Tauri 桌面版源码
-├── windows-electron/    Electron 桌面版源码
-├── scripts/             版本同步和项目检查脚本
+├── tauri/               Tauri 桌面版源码（全平台，主力维护）
+├── windows-electron/    Electron 桌面版源码（仅 Windows，备用）
+├── scripts/             版本同步和项目检查脚本（Node.js）
 ├── tests/               Playwright 自动化测试
 ├── docs/                打包、发布、更新日志和维护说明
 ├── VERSION              当前统一产品版本号
@@ -128,7 +142,7 @@ Actions 会先执行项目检查，然后构建 Electron 便携版、Electron �
 ## 相关文档
 
 - [使用指南](./使用指南.md)
-- [Tauri 功能介绍](./windows-tauri/功能介绍.md)
+- [Tauri 功能介绍](./tauri/功能介绍.md)
 - [Electron 功能介绍](./windows-electron/功能介绍.md)
 - [打包说明](./docs/打包说明.md)
 - [项目维护说明](./docs/项目维护说明.md)

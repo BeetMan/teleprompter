@@ -1,5 +1,7 @@
 # 提词器 Electron 版
 
+> Electron 版仅作为 Windows 备用版本维护，日常使用和跨平台请使用 [Tauri 版](../tauri/README.md)。
+
 Electron 版是提词器的兼容桌面版本，当前产品版本为 `6.1.5`。它与 Tauri 版共享主要界面和提词功能，并通过 Electron 管理主窗口、第二屏输出和程序退出。
 
 ## 功能

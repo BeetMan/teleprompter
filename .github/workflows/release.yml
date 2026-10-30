@@ -10,7 +10,144 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Check version
+        id: version
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must use semantic versioning: $version" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* && "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run project checks
+        run: npm run check
+
+  tauri:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            args: --bundles nsis
+          - platform: macos
+            os: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
+          - platform: linux
+            os: ubuntu-22.04
+            args: --bundles deb,appimage
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tauri/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri -> target
+
+      - name: Install Tauri dependencies
+        working-directory: tauri
+        run: npm ci
+
+      - name: Build Tauri bundles
+        working-directory: tauri
+        run: npm run build -- ${{ matrix.args }}
+
+      - name: Collect release files
+        shell: bash
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p release-assets
+          bundle=tauri/src-tauri/target/release/bundle
+          prefix="Teleprompter-Tauri-$VERSION"
+
+          copy_one() {
+            local files=($1)
+            if [[ ${#files[@]} -ne 1 ]]; then
+              echo "Expected exactly one file for $1, found ${#files[@]}" >&2
+              exit 1
+            fi
+            cp "${files[0]}" "release-assets/$2"
+          }
+
+          case "$PLATFORM" in
+            windows)
+              copy_one "$bundle/nsis/*.exe" "$prefix-Windows-x64-Setup.exe"
+              ;;
+            macos)
+              copy_one "tauri/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg" "$prefix-macOS-universal.dmg"
+              ;;
+            linux)
+              copy_one "$bundle/deb/*.deb" "$prefix-Linux-amd64.deb"
+              copy_one "$bundle/appimage/*.AppImage" "$prefix-Linux-x86_64.AppImage"
+              ;;
+          esac
+          ls -l release-assets
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: tauri-${{ matrix.platform }}
+          path: release-assets/
+          if-no-files-found: error
+
+  # Electron 版仅作为 Windows 备用版本继续发布。
+  electron:
+    needs: check
     runs-on: windows-latest
 
     steps:
@@ -22,36 +159,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            windows-electron/package-lock.json
-            windows-tauri/package-lock.json
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Check version
-        id: version
-        shell: pwsh
-        run: |
-          $version = (Get-Content -Raw -Encoding UTF8 VERSION).Trim()
-          if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "VERSION must use semantic versioning: $version"
-          }
-          if ($env:GITHUB_REF -like 'refs/tags/*' -and "v$version" -ne $env:GITHUB_REF_NAME) {
-            throw "Tag $env:GITHUB_REF_NAME does not match VERSION $version"
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Install root dependencies
-        run: npm ci
+          cache-dependency-path: windows-electron/package-lock.json
 
       - name: Install Electron dependencies
         working-directory: windows-electron
         run: npm ci
-
-      - name: Run project checks
-        run: npm run check
 
       # Build the unpacked directory once, then package it twice. This avoids
       # repeating the Electron application packaging work for each target.
@@ -61,57 +173,51 @@ jobs:
 
       - name: Build Electron portable package
         working-directory: windows-electron
-        run: npx electron-builder --win portable --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/portable-${{ steps.version.outputs.version }}
+        run: npx electron-builder --win portable --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/portable
 
       - name: Build Electron installer
         working-directory: windows-electron
-        run: npx electron-builder --win nsis --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/nsis-${{ steps.version.outputs.version }}
-
-      - name: Install Tauri dependencies
-        working-directory: windows-tauri
-        run: npm ci
-
-      - name: Build Tauri installer
-        working-directory: windows-tauri
-        run: npm run build
+        run: npx electron-builder --win nsis --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/nsis
 
       - name: Collect release files
-        shell: pwsh
+        shell: bash
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          $assetDir = Join-Path $env:GITHUB_WORKSPACE 'release-assets'
-          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
-
-          function Copy-SingleExe([string] $directory, [string] $destination) {
-            $file = Get-ChildItem -Path $directory -Filter '*.exe' -File | Select-Object -First 1
-            if (-not $file) {
-              throw "No executable found in $directory"
-            }
-            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $assetDir $destination)
-          }
-
-          Copy-SingleExe "windows-electron/dist/portable-$env:VERSION" "Teleprompter-Electron-$env:VERSION-Portable.exe"
-          Copy-SingleExe "windows-electron/dist/nsis-$env:VERSION" "Teleprompter-Electron-$env:VERSION-Setup.exe"
-          Copy-SingleExe 'windows-tauri/src-tauri/target/release/bundle/nsis' "Teleprompter-Tauri-$env:VERSION-Setup.exe"
-
-          $sha256 = [System.Security.Cryptography.SHA256]::Create()
-          $checksums = foreach ($file in Get-ChildItem -Path $assetDir -Filter '*.exe' -File | Sort-Object Name) {
-            $stream = [System.IO.File]::OpenRead($file.FullName)
-            try {
-              $hash = (($sha256.ComputeHash($stream) | ForEach-Object { $_.ToString('X2') }) -join '')
-            } finally {
-              $stream.Dispose()
-            }
-            "$hash  $($file.Name)"
-          }
-          $sha256.Dispose()
-          Set-Content -LiteralPath (Join-Path $assetDir 'SHA256SUMS.txt') -Value $checksums -Encoding ascii
+          set -euo pipefail
+          mkdir -p release-assets
+          cp windows-electron/dist/portable/*.exe "release-assets/Teleprompter-Electron-$VERSION-Windows-x64-Portable.exe"
+          cp windows-electron/dist/nsis/*.exe "release-assets/Teleprompter-Electron-$VERSION-Windows-x64-Setup.exe"
+          ls -l release-assets
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: teleprompter-${{ steps.version.outputs.version }}-windows
+          name: electron-windows
+          path: release-assets/
+          if-no-files-found: error
+
+  release:
+    needs: [check, tauri, electron]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: release-assets
+        run: |
+          sha256sum -- * | sort -k2 > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload combined artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: teleprompter-${{ needs.check.outputs.version }}
           path: release-assets/
           if-no-files-found: error
 
@@ -122,16 +228,16 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: 提词器 ${{ github.ref_name }}
           body: |
-            ## 更新内容
+            ## 下载
 
-            本版本由 GitHub Actions 自动构建并发布。
+            | 平台 | 推荐安装包 |
+            | --- | --- |
+            | Windows | `Teleprompter-Tauri-*-Windows-x64-Setup.exe` |
+            | macOS（Apple 芯片与 Intel 通用） | `Teleprompter-Tauri-*-macOS-universal.dmg` |
+            | Linux | `Teleprompter-Tauri-*-Linux-x86_64.AppImage` 或 `.deb` |
 
-            - Tauri Windows 安装版
-            - Electron Windows 便携版
-            - Electron Windows 安装版
-            - `SHA256SUMS.txt` 文件校验清单
+            Electron Windows 便携版和安装版继续作为备用版本提供。`SHA256SUMS.txt` 为全部文件的校验清单。
 
-            > 当前发布包尚未配置 Windows 代码签名证书，部分设备可能显示 Smart App Control 或 SmartScreen 警告。正式分发前请核对 SHA256 校验值，并在后续版本接入代码签名。
+            > 当前安装包尚未配置代码签名。Windows 可能显示 SmartScreen 警告；macOS 首次打开如提示"已损坏"或"无法验证开发者"，请将应用拖入"应用程序"后在终端执行 `xattr -cr /Applications/提词器.app`，或在"系统设置 → 隐私与安全性"中选择"仍要打开"。
           files: |
-            release-assets/*.exe
-            release-assets/SHA256SUMS.txt
+            release-assets/*
