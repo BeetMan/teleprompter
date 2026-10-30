@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # PR 上完整构建三个平台以便验证；创建 Release 的步骤只在推送标签时执行。
+  pull_request:
   workflow_dispatch:
 
 permissions:
