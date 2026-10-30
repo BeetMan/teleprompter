@@ -1,0 +1,219 @@
+name: Build
+
+# 全平台构建：PR 上直接运行用于验证，发版时由 release.yml 以指定标签调用。
+# 只负责检查、构建和上传产物，不创建 Release。
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: 要构建的 Git 引用（标签或提交）
+        type: string
+        required: true
+    outputs:
+      version:
+        description: 构建所用的产品版本号
+        value: ${{ jobs.check.outputs.version }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Read version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run project checks
+        run: npm run check
+
+  tauri:
+    needs: check
+    name: tauri (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            args: --bundles nsis
+            assets: |
+              nsis/*.exe=Windows-x64-Setup.exe
+          - name: windows-arm64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+            args: --target aarch64-pc-windows-msvc --bundles nsis
+            assets: |
+              nsis/*.exe=Windows-arm64-Setup.exe
+          - name: macos-universal
+            os: macos-latest
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
+            assets: |
+              dmg/*.dmg=macOS-universal.dmg
+          - name: linux-x64
+            os: ubuntu-22.04
+            args: --bundles deb,rpm,appimage
+            assets: |
+              deb/*.deb=Linux-amd64.deb
+              rpm/*.rpm=Linux-x86_64.rpm
+              appimage/*.AppImage=Linux-x86_64.AppImage
+          - name: linux-arm64
+            os: ubuntu-22.04-arm
+            args: --bundles deb,rpm,appimage
+            assets: |
+              deb/*.deb=Linux-arm64.deb
+              rpm/*.rpm=Linux-aarch64.rpm
+              appimage/*.AppImage=Linux-aarch64.AppImage
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tauri/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets || matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri -> target
+          key: ${{ matrix.name }}
+
+      - name: Install Tauri dependencies
+        working-directory: tauri
+        run: npm ci
+
+      - name: Build Tauri bundles
+        working-directory: tauri
+        run: npm run build -- ${{ matrix.args }}
+
+      - name: Collect release files
+        shell: bash
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          ASSETS: ${{ matrix.assets }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundle="tauri/src-tauri/target/${TARGET:+$TARGET/}release/bundle"
+          mkdir -p release-assets
+
+          while IFS='=' read -r pattern name; do
+            [[ -z "$pattern" ]] && continue
+            # shellcheck disable=SC2206 # pattern 是需要展开的通配符
+            files=("$bundle"/$pattern)
+            if [[ ${#files[@]} -ne 1 ]]; then
+              echo "Expected exactly one file for $bundle/$pattern, found ${#files[@]}" >&2
+              exit 1
+            fi
+            cp "${files[0]}" "release-assets/Teleprompter-Tauri-$VERSION-$name"
+          done <<< "$ASSETS"
+          ls -l release-assets
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: tauri-${{ matrix.name }}
+          path: release-assets/
+          if-no-files-found: error
+
+  # Electron 版仅作为 Windows x64 备用版本继续发布。
+  electron:
+    needs: check
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows-electron/package-lock.json
+
+      - name: Install Electron dependencies
+        working-directory: windows-electron
+        run: npm ci
+
+      # Build the unpacked directory once, then package it twice. This avoids
+      # repeating the Electron application packaging work for each target.
+      - name: Build Electron application directory
+        working-directory: windows-electron
+        run: npx electron-builder --win dir --x64 --config.win.signAndEditExecutable=false
+
+      - name: Build Electron portable package
+        working-directory: windows-electron
+        run: npx electron-builder --win portable --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/portable
+
+      - name: Build Electron installer
+        working-directory: windows-electron
+        run: npx electron-builder --win nsis --x64 --prepackaged dist/win-unpacked --config.win.signAndEditExecutable=false --config.directories.output=dist/nsis
+
+      - name: Collect release files
+        shell: bash
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp windows-electron/dist/portable/*.exe "release-assets/Teleprompter-Electron-$VERSION-Windows-x64-Portable.exe"
+          cp windows-electron/dist/nsis/*.exe "release-assets/Teleprompter-Electron-$VERSION-Windows-x64-Setup.exe"
+          ls -l release-assets
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: electron-windows-x64
+          path: release-assets/
+          if-no-files-found: error

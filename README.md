@@ -19,9 +19,9 @@
 
 | 平台 | 安装包 |
 | --- | --- |
-| Windows 10 / 11（x64） | Tauri 安装版 `.exe`，或 Electron 便携版 / 安装版 |
+| Windows 10 / 11（x64 / ARM64） | Tauri 安装版 `.exe`；x64 另有 Electron 便携版 / 安装版 |
 | macOS 10.15+（Apple 芯片与 Intel 通用） | Tauri `.dmg` |
-| Linux（x86_64） | Tauri `.AppImage` 或 `.deb` |
+| Linux（x86_64 / ARM64） | Tauri `.AppImage`、`.deb` 或 `.rpm` |
 
 最新安装包可在 [GitHub Releases](https://github.com/BeetMan/teleprompter/releases/latest) 获取。
 
@@ -113,16 +113,14 @@ npm run check
 npm run sync:version -- 6.5.0
 ```
 
-## GitHub Actions 发布
+## GitHub Actions 发版
 
-发布流程由 `.github/workflows/release.yml` 管理。提交版本号同步改动后，推送符合 `vX.Y.Z` 格式的标签即可触发自动构建：
+1. 在 `docs/更新日志-X.Y.md` 中写好 `## X.Y.Z` 小节并推送到 `main`。
+2. 在 GitHub 打开 **Actions → Release → Run workflow**，填写版本号。
 
-```bash
-git tag -a v6.5.0 -m "Release v6.5.0"
-git push origin v6.5.0
-```
+工作流会同步版本号、提交并打标签，然后并行构建 Tauri 的 Windows（x64 / ARM64）、macOS 通用、Linux（x86_64 / ARM64，`.AppImage` / `.deb` / `.rpm`）安装包和 Electron Windows 备用版本，生成 `SHA256SUMS.txt`，最后用更新日志创建 GitHub Release。也可以在本地同步版本号后直接推送 `vX.Y.Z` 标签触发。详细说明见 [项目维护说明](./docs/项目维护说明.md#自动发布)。
 
-Actions 会先在 Linux 上执行项目检查，然后并行构建 Tauri 的 Windows 安装版、macOS 通用 `.dmg`、Linux `.deb` 和 `.AppImage`，以及 Electron Windows 便携版和安装版，最后生成 `SHA256SUMS.txt` 并创建或更新对应的 GitHub Release。当前工作流默认生成未签名安装包；后续接入证书后，可在工作流中增加签名步骤。
+每个 PR 都会运行 `.github/workflows/build.yml` 完成检查和全平台构建。
 
 ## 项目结构
 
