@@ -1,7 +1,7 @@
 {
   "name": "teleprompter-workspace",
   "private": true,
-  "version": "6.5.0",
+  "version": "6.6.0",
   "description": "Development checks for the teleprompter desktop project.",
   "scripts": {
     "check": "node scripts/project.mjs check",
