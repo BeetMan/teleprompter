@@ -6,6 +6,7 @@
 //   node scripts/project.mjs check-version
 //   node scripts/project.mjs check-parity
 //   node scripts/project.mjs check          （同步前端 + 检查版本 + 检查一致性 + Playwright 测试）
+//   node scripts/project.mjs release-notes 6.5.0   （输出 docs/更新日志-6.5.md 中 ## 6.5.0 一节，缺失时报错）
 
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -149,12 +150,28 @@ function check() {
   console.log("\nProject check passed.");
 }
 
+// 发版说明取自 docs/更新日志-X.Y.md 中对应的 "## X.Y.Z" 小节，直到下一个同级标题
+function releaseNotes(version) {
+  if (!semver.test(version ?? "")) throw new Error("Usage: node scripts/project.mjs release-notes x.y.z");
+  const path = `docs/更新日志-${shortVersion(version)}.md`;
+  if (!existsSync(abs(path))) throw new Error(`Missing changelog file: ${path}`);
+  const lines = read(path).split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${version}`);
+  if (start === -1) throw new Error(`${path} has no "## ${version}" section.`);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^##\s/.test(line));
+  const notes = (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
+  if (!notes) throw new Error(`${path} "## ${version}" section is empty.`);
+  console.log(notes);
+}
+
 const commands = {
   "sync-version": syncVersion,
   "sync-frontend": syncFrontend,
   "check-version": checkVersion,
   "check-parity": checkParity,
   check,
+  "release-notes": releaseNotes,
 };
 
 const [command, ...args] = process.argv.slice(2);
