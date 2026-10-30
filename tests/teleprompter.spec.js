@@ -537,3 +537,45 @@ test("output mode ignores playback keys and only handles Escape", async ({ page 
   await page.keyboard.press("Escape");
   await expect.poll(() => page.evaluate(() => window.__closeCalls)).toBe(1);
 });
+
+test("Escape in the main window closes an open output window", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__closeCalls = 0;
+    window.teleprompterBridge = {
+      toggleOutputWindow: async () => ({ opened: true, displayCount: 2, outputWidth: 1280, outputHeight: 720 }),
+      closeOutputWindow: async () => {
+        window.__closeCalls += 1;
+        return { opened: false, displayCount: 2 };
+      },
+      sendState: () => {},
+      onState: () => {},
+      onOutputStatus: () => {},
+    };
+  });
+
+  await page.goto(appUrl);
+  await page.locator("#outputButton").click();
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "true");
+
+  // 播放中按 Esc 只关第二屏，不改变播放状态
+  await page.keyboard.press("Space");
+  await expect(page.locator("#playButton")).not.toHaveClass(/primary/);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => page.evaluate(() => window.__closeCalls)).toBe(1);
+  await expect(page.locator("#playButton")).not.toHaveClass(/primary/);
+
+  // 第二屏关闭后，Esc 恢复为暂停播放，不再调用关闭
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#playButton")).toHaveClass(/primary/);
+  expect(await page.evaluate(() => window.__closeCalls)).toBe(1);
+
+  // 编辑稿件时按 Esc 也能关闭第二屏
+  await page.locator("#outputButton").click();
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").focus();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => page.evaluate(() => window.__closeCalls)).toBe(2);
+});

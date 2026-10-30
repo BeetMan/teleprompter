@@ -2168,6 +2168,19 @@
       }
     }
 
+    async function closeOutputWindowFromMain() {
+      if (!window.teleprompterBridge?.closeOutputWindow || outputTogglePending) {
+        return;
+      }
+      outputTogglePending = true;
+      try {
+        applyOutputStatus(await window.teleprompterBridge.closeOutputWindow());
+        elements.stage.focus({ preventScroll: true });
+      } finally {
+        outputTogglePending = false;
+      }
+    }
+
     function startResize(event) {
       event.preventDefault();
       resizing = true;
@@ -2549,6 +2562,13 @@
           event.preventDefault();
           window.teleprompterBridge?.closeOutputWindow?.();
         }
+        return;
+      }
+      // 打开第二屏后键盘焦点通常留在主窗口（macOS 上焦点落在哪个窗口还不确定），
+      // 所以主窗口里按 Esc 也要能关闭第二屏；编辑稿件时同样生效
+      if (event.key === "Escape" && outputActive) {
+        event.preventDefault();
+        closeOutputWindowFromMain();
         return;
       }
       // 只有正在输入文字的控件（文本框、下拉框）才把按键留给控件本身；
