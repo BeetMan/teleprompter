@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("webkit", {
 contextBridge.exposeInMainWorld("teleprompterBridge", {
   toggleOutputWindow: (displayId) => ipcRenderer.invoke("toggle-output-window", displayId),
   closeOutputWindow: () => ipcRenderer.invoke("close-output-window"),
+  reportOutputViewport: (size) => ipcRenderer.invoke("output-viewport", size),
   getOutputStatus: () => ipcRenderer.invoke("get-output-status"),
   selectOutputDisplay: (displayId) => ipcRenderer.invoke("select-output-display", displayId),
   sendState: (state) => ipcRenderer.send("teleprompter-state", state),

@@ -5,6 +5,8 @@ let mainWindow;
 let outputWindow;
 let selectedDisplayId = null;
 let activeOutputDisplayId = null;
+// 第二屏窗口实测的可用显示区域（CSS 像素），只对测量时所在的显示器有效
+let measuredOutputViewport = null;
 let displayChangeTimer = null;
 let lastTeleprompterSnapshot = null;
 let lastTeleprompterPlayback = null;
@@ -112,11 +114,14 @@ function isOutputWindowOpen() {
 
 function getOutputStatus(opened = isOutputWindowOpen(), notice = null) {
   const display = getOutputDisplay(opened ? activeOutputDisplayId : selectedDisplayId);
+  const measured = opened && measuredOutputViewport?.displayId === getDisplayId(display)
+    ? measuredOutputViewport
+    : null;
   return {
     opened,
     displayCount: screen.getAllDisplays().length,
-    outputWidth: display.bounds.width,
-    outputHeight: display.bounds.height,
+    outputWidth: measured?.width ?? display.bounds.width,
+    outputHeight: measured?.height ?? display.bounds.height,
     selectedDisplayId: getDisplayId(display),
     displays: getOutputDisplays(),
     notice,
@@ -275,6 +280,24 @@ ipcMain.handle("toggle-output-window", (_event, displayId) => toggleOutputWindow
 ipcMain.handle("close-output-window", () => closeOutputWindow());
 
 ipcMain.handle("get-output-status", () => getOutputStatus());
+
+ipcMain.handle("output-viewport", (event, size) => {
+  if (!isOutputWindowOpen() || event.sender !== outputWindow.webContents || !activeOutputDisplayId) {
+    return;
+  }
+  const width = Math.round(Number(size?.width));
+  const height = Math.round(Number(size?.height));
+  if (!(width > 0 && height > 0)) {
+    return;
+  }
+  if (measuredOutputViewport?.displayId === activeOutputDisplayId
+    && measuredOutputViewport.width === width
+    && measuredOutputViewport.height === height) {
+    return;
+  }
+  measuredOutputViewport = { displayId: activeOutputDisplayId, width, height };
+  sendOutputStatus();
+});
 
 ipcMain.handle("select-output-display", (_event, displayId) => selectOutputDisplay(displayId));
 
