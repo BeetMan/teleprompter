@@ -15,7 +15,7 @@ Tauri 版是提词器的主力桌面版本，支持 Windows、macOS 和 Linux，
 
 ## 环境要求
 
-- Node.js 20 LTS 或 22 LTS
+- Node.js 24 LTS 或 26 LTS
 - Rust 稳定版工具链
 - Windows：WebView2 Runtime
 - macOS：Xcode Command Line Tools
