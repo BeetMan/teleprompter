@@ -18,7 +18,7 @@ Electron 版是提词器的兼容桌面版本，当前产品版本为 `6.1.5`。
 ## 环境要求
 
 - Windows 10 或更高版本
-- Node.js 20 LTS 或 22 LTS
+- Node.js 24 LTS 或 26 LTS
 - npm
 
 ## 开发运行
