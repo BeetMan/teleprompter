@@ -859,6 +859,71 @@
       right: 10vw;
     }
 
+    /* 侧栏布局：第二屏是竖屏等窄比例时，控制栏移到右侧，让预览尽量高 */
+    .app.layout-side {
+      grid-template-columns: minmax(0, 1fr) var(--side-panel-width, 340px);
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .app.layout-side .control-panel {
+      border-top: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .app.layout-side .resize-handle,
+    .app.layout-side .control-main > .shortcut-hint {
+      display: none;
+    }
+
+    .app.layout-side .control-main {
+      gap: 10px;
+      padding: 12px;
+      max-height: 100%;
+    }
+
+    .app.layout-side .control-row-primary {
+      flex-wrap: wrap;
+    }
+
+    .app.layout-side .control-row-primary .speed-field {
+      flex: 1 1 100%;
+      max-width: none;
+      order: 9;
+    }
+
+    .app.layout-side .control-row-primary #toggleEditorButton {
+      margin-left: 0;
+    }
+
+    .app.layout-side .output-display-picker select {
+      width: 150px;
+    }
+
+    .app.layout-side .control-row-settings {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .app.layout-side .control-row-settings .settings-group {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .app.layout-side .control-row-settings .control-group {
+      flex: none;
+    }
+
+    /* 稿件编辑抽屉从侧栏左侧展开，盖在预览右上方 */
+    .app.layout-side .script-drawer {
+      left: auto;
+      right: 100%;
+      top: 0;
+      bottom: auto;
+      width: min(560px, calc(100vw - var(--side-panel-width, 340px) - 48px));
+      border-top: 0;
+      border-left: 1px solid var(--line);
+      box-shadow: -22px 0 70px rgba(0, 0, 0, .38);
+    }
+
     @media (max-width: 1120px) {
       .app {
         grid-template-rows: minmax(0, 1fr) var(--control-height, clamp(104px, 14vh, 132px));
@@ -997,11 +1062,12 @@
       </div>
       <div class="script" id="scriptText"></div>
       <div class="output-remaining" id="outputRemaining">剩余 0 字</div>
+      </div>
+      <!-- 浏览进度是主窗口控件，不属于画布：放在预览区边缘，竖屏等窄画布时不遮挡稿件 -->
       <div class="stage-progress" aria-label="浏览进度">
         <span class="stage-progress-label">浏览进度</span>
         <input id="browseRange" type="range" min="0" max="100" value="0" step="1" aria-label="浏览进度">
         <span class="value" id="browseValue">0%</span>
-      </div>
       </div>
     </main>
 
@@ -1260,6 +1326,9 @@
     let preferredOutputDisplayId = "";
     let selectedOutputDisplayId = "";
     let lastOutputWidth = 0;
+    // 主窗口布局：控制栏在底部（默认）或右侧，按第二屏画布比例选让预览更大的一种
+    const SIDE_PANEL_WIDTH = 340;
+    let layoutSide = false;
     let lastOutputHeight = 0;
     let outputStatusRefreshPending = false;
     let outputTogglePending = false;
@@ -1278,6 +1347,7 @@
         getOutputStatus: () => tauriInvoke("get_output_status"),
         selectOutputDisplay: (displayId) => tauriInvoke("select_output_display", { displayId }),
         outputWindowReady: () => tauriInvoke("output_window_ready"),
+        reportOutputViewport: (size) => tauriInvoke("output_viewport", size),
         sendState: (state) => {
           tauriInvoke("teleprompter_state", { state }).catch(() => {});
         },
@@ -1391,6 +1461,36 @@
       return naturalControlHeight;
     }
 
+    // 底部控制栏高度：侧栏布局时面板高度是整个窗口，取保存的底栏高度
+    function getBottomControlHeight() {
+      const stored = parseFloat(elements.app.style.getPropertyValue("--control-height"));
+      return stored > 0 ? stored : (naturalControlHeight || 112);
+    }
+
+    function updateLayoutMode() {
+      if (isOutputMode) {
+        return;
+      }
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      let side = false;
+      // 全屏模式控制栏会自动收起、窄窗口放不下侧栏，都保持底栏
+      if (!elements.app.classList.contains("fullscreen-mode") && width >= 900) {
+        // 按控制栏内容本身的高度比较，不用用户拖大后的高度：拖大底栏是用户的选择，不应因此被切成侧栏
+        const bottomControlHeight = naturalControlHeight || 112;
+        const bottomScale = Math.min(width / previewBaseWidth, (height - bottomControlHeight) / previewBaseHeight);
+        const sideScale = Math.min((width - SIDE_PANEL_WIDTH) / previewBaseWidth, height / previewBaseHeight);
+        // 侧栏能让预览变大就切换；进出阈值错开，避免窗口在临界尺寸时来回跳
+        side = layoutSide ? sideScale >= bottomScale : sideScale > bottomScale * 1.04;
+      }
+      if (side === layoutSide) {
+        return;
+      }
+      layoutSide = side;
+      elements.app.classList.toggle("layout-side", side);
+      requestAnimationFrame(() => resizePreviewSurface(true));
+    }
+
     function setControlHeight(height, persist = true) {
       const { minHeight, maxHeight } = getControlBounds();
       const floor = Math.max(minHeight, naturalControlHeight || minHeight);
@@ -1472,7 +1572,7 @@
         width: Number(elements.widthRange.value),
         offset: Number(elements.offsetRange.value),
         guide: Number(elements.guideRange.value),
-        controlHeight: getControlHeight(),
+        controlHeight: layoutSide ? getBottomControlHeight() : getControlHeight(),
         mirrorX: mirrorX === -1,
         mirrorY: mirrorY === -1,
         displayMode,
@@ -1576,6 +1676,9 @@
         lastOutputWidth = Number(status.outputWidth);
         lastOutputHeight = Number(status.outputHeight);
         setPreviewBaseSize(status.outputWidth, status.outputHeight, true);
+        updateLayoutMode();
+        // 画布比例变了（例如第二屏回报了实测尺寸），立即把新比例同步给第二屏
+        publishState(true);
       }
       setOutputActive(Boolean(status?.opened));
     }
@@ -2102,6 +2205,7 @@
     function setFullscreenMode(active) {
       elements.app.classList.toggle("fullscreen-mode", active);
       elements.app.classList.remove("controls-collapsed");
+      updateLayoutMode();
       if (active) {
         revealFullscreenControls();
       } else if (fullscreenCollapseTimer) {
@@ -2183,6 +2287,33 @@
       } finally {
         outputTogglePending = false;
       }
+    }
+
+    // 第二屏以自身实际可用显示区域为准：全屏完成、窗口尺寸变化后把实测尺寸报给主进程，
+    // 主窗口据此确定画布比例（显示器分辨率只作为打开前的预估）
+    let outputViewportTimer = 0;
+    let lastReportedOutputViewport = "";
+
+    function reportOutputViewport() {
+      if (!isOutputMode || document.visibilityState === "hidden") {
+        return;
+      }
+      const width = Math.round(window.innerWidth);
+      const height = Math.round(window.innerHeight);
+      const signature = `${width}x${height}`;
+      if (width <= 0 || height <= 0 || signature === lastReportedOutputViewport) {
+        return;
+      }
+      lastReportedOutputViewport = signature;
+      window.teleprompterBridge?.reportOutputViewport?.({ width, height })?.catch?.(() => {
+        lastReportedOutputViewport = "";
+      });
+    }
+
+    function scheduleOutputViewportReport() {
+      window.clearTimeout(outputViewportTimer);
+      // 全屏切换过程中会连续出现中间尺寸，稍等稳定后再上报
+      outputViewportTimer = window.setTimeout(reportOutputViewport, 150);
     }
 
     function startResize(event) {
@@ -2467,6 +2598,8 @@
         } else {
           setControlHeight(naturalControlHeight, true);
         }
+        // 底栏自然高度量完后再决定布局，侧栏布局下量到的高度不可用
+        updateLayoutMode();
       }));
     }
 
@@ -2520,9 +2653,10 @@
       // 窗口变小导致 maxHeight 收缩时把超高面板压回；不要无条件用
       // getControlHeight() 量一遍再 clamp，避免量取误差把高度推高
       const { maxHeight } = getControlBounds();
-      if (getControlHeight() > maxHeight) {
+      if (!layoutSide && getControlHeight() > maxHeight) {
         setControlHeight(maxHeight, false);
       }
+      updateLayoutMode();
       resizePreviewSurface(true);
     });
     elements.toggleEditorButton.addEventListener("click", () => {
@@ -2629,6 +2763,9 @@
     window.teleprompterBridge?.onOutputStatus?.(applyOutputStatus);
     if (isOutputMode) {
       window.teleprompterBridge?.outputWindowReady?.();
+      reportOutputViewport();
+      window.addEventListener("resize", scheduleOutputViewportReport);
+      document.addEventListener("visibilitychange", scheduleOutputViewportReport);
     } else {
       initializeOutputDisplays();
     }

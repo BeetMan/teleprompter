@@ -732,3 +732,91 @@ test("horizontal offset matches between main preview and a larger output display
     await mainContext.close();
   }
 });
+
+test("output window reports its measured viewport and the main canvas follows it", async ({ page, context }) => {
+  // 输出页：尺寸变化后上报实测可用区域
+  await page.addInitScript(() => {
+    window.__reports = [];
+    window.teleprompterBridge = {
+      onState: () => {},
+      onOutputStatus: () => {},
+      outputWindowReady: () => Promise.resolve(),
+      reportOutputViewport: (size) => { window.__reports.push(size); return Promise.resolve(); },
+    };
+  });
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto(`${appUrl}?mode=output`);
+  await expect.poll(() => page.evaluate(() => window.__reports.at(-1))).toEqual({ width: 1200, height: 900 });
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await expect.poll(() => page.evaluate(() => window.__reports.at(-1))).toEqual({ width: 1000, height: 900 });
+
+  // 主窗口：收到带实测尺寸的状态后，画布改用该比例，并把新比例发给第二屏
+  const main = await context.newPage();
+  await main.addInitScript(() => {
+    window.__snapshots = [];
+    const status = { opened: false, displayCount: 2, outputWidth: 1920, outputHeight: 1080 };
+    window.teleprompterBridge = {
+      sendState: (state) => { if (state.kind === "snapshot") window.__snapshots.push(state.state); },
+      onState: () => {},
+      onOutputStatus: (callback) => { window.__pushStatus = callback; },
+      toggleOutputWindow: async () => { status.opened = true; return { ...status }; },
+      getOutputStatus: async () => ({ ...status }),
+      __setMeasured: (width, height) => { Object.assign(status, { outputWidth: width, outputHeight: height }); },
+    };
+  });
+  await main.goto(appUrl);
+  await main.locator("#outputButton").click();
+  await expect(main.locator("#previewSurface")).toHaveCSS("width", "1280px");
+
+  await main.evaluate(() => {
+    window.teleprompterBridge.__setMeasured(1000, 900);
+    window.__pushStatus({ opened: true, displayCount: 2, outputWidth: 1000, outputHeight: 900 });
+  });
+  await expect(main.locator("#previewSurface")).toHaveCSS("width", "800px");
+  await expect(main.locator("#previewSurface")).toHaveCSS("height", "720px");
+  await expect.poll(() => main.evaluate(() => window.__snapshots.at(-1)?.previewWidth)).toBe(800);
+});
+
+test("main window moves controls to the side for portrait outputs", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("local-teleprompter-state-v2", JSON.stringify({ controlHeight: 150 }));
+    const status = { opened: false, displayCount: 2, outputWidth: 1920, outputHeight: 1080 };
+    window.teleprompterBridge = {
+      sendState: () => {},
+      onState: () => {},
+      onOutputStatus: (callback) => { window.__pushStatus = (next) => { Object.assign(status, next); callback({ ...status }); }; },
+      toggleOutputWindow: async () => { status.opened = true; return { ...status }; },
+      getOutputStatus: async () => ({ ...status }),
+    };
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(appUrl);
+  await page.locator("#outputButton").click();
+  await expect(page.locator(".app")).not.toHaveClass(/layout-side/);
+
+  // 第二屏变成竖屏：控制栏移到右侧，预览用满窗口高度
+  await page.evaluate(() => window.__pushStatus({ outputWidth: 1080, outputHeight: 1920 }));
+  await expect(page.locator(".app")).toHaveClass(/layout-side/);
+  await expect.poll(() => page.evaluate(() => Math.round(document.querySelector("#previewSurface").getBoundingClientRect().height))).toBe(900);
+  // 浏览进度在画布外，不遮挡稿件
+  const overlap = await page.evaluate(() => {
+    const surface = document.querySelector("#previewSurface").getBoundingClientRect();
+    const progress = document.querySelector(".stage-progress").getBoundingClientRect();
+    return progress.left < surface.right && progress.right > surface.left;
+  });
+  expect(overlap).toBe(false);
+
+  // 侧栏布局下保存设置不会把底栏高度改成整窗高度
+  await page.locator("#darkModeButton").click();
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("local-teleprompter-state-v2")).controlHeight)).toBe(150);
+
+  // 窗口太窄时回到底栏
+  await page.setViewportSize({ width: 860, height: 900 });
+  await expect(page.locator(".app")).not.toHaveClass(/layout-side/);
+
+  // 换回横屏输出后保持底栏
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => window.__pushStatus({ outputWidth: 1920, outputHeight: 1080 }));
+  await expect(page.locator(".app")).not.toHaveClass(/layout-side/);
+});

@@ -16,6 +16,15 @@ struct AppState {
     active_output_display_id: Mutex<Option<String>>,
     // 打开第二屏后是否已向 webview 推送过实时状态；推过就不能再重放缓存，否则会打乱顺序
     output_received_live_state: Mutex<bool>,
+    // 第二屏窗口实测的可用显示区域（CSS 像素），只对测量时所在的显示器有效
+    output_viewport: Mutex<Option<MeasuredViewport>>,
+}
+
+#[derive(Clone, PartialEq)]
+struct MeasuredViewport {
+    display_id: String,
+    width: u32,
+    height: u32,
 }
 
 #[derive(Clone, Serialize)]
@@ -92,6 +101,14 @@ fn display_list(monitors: &[Monitor], primary_position: Option<(i32, i32)>) -> V
         .collect()
 }
 
+fn read_measured_viewport(app_state: &AppState) -> Result<Option<MeasuredViewport>, String> {
+    app_state
+        .output_viewport
+        .lock()
+        .map_err(|_| "状态锁定失败".to_string())
+        .map(|value| value.clone())
+}
+
 fn read_display_id(value: &Mutex<Option<String>>) -> Result<Option<String>, String> {
     value
         .lock()
@@ -112,16 +129,26 @@ fn make_output_status(
     primary_position: Option<(i32, i32)>,
     target_display_id: Option<&str>,
     opened: bool,
+    measured: Option<&MeasuredViewport>,
     notice: Option<String>,
 ) -> OutputWindowStatus {
     let target_index = resolve_monitor_index(monitors, primary_position, target_display_id);
     let target_monitor = target_index.and_then(|index| monitors.get(index));
+    let target_id = target_monitor.map(monitor_id);
+    // 第二屏打开且在同一显示器上实测过时，以实测尺寸为准（刘海、任务栏、全屏未铺满等情况
+    // 实际可用区域会和显示器分辨率不同）；否则用显示器分辨率作为预估
+    let measured = measured
+        .filter(|viewport| opened && target_id.as_deref() == Some(viewport.display_id.as_str()));
     OutputWindowStatus {
         opened,
         display_count: monitors.len(),
-        output_width: target_monitor.map(|monitor| monitor.size().width),
-        output_height: target_monitor.map(|monitor| monitor.size().height),
-        selected_display_id: target_monitor.map(monitor_id),
+        output_width: measured
+            .map(|viewport| viewport.width)
+            .or_else(|| target_monitor.map(|monitor| monitor.size().width)),
+        output_height: measured
+            .map(|viewport| viewport.height)
+            .or_else(|| target_monitor.map(|monitor| monitor.size().height)),
+        selected_display_id: target_id,
         displays: display_list(monitors, primary_position),
         notice,
     }
@@ -306,11 +333,13 @@ fn inspect_output_status(
     } else {
         selected_display_id.as_deref()
     };
+    let measured = read_measured_viewport(app_state)?;
     Ok(make_output_status(
         &monitors,
         primary_position,
         target_display_id,
         outcome.opened,
+        measured.as_ref(),
         requested_notice.or_else(|| {
             outcome
                 .disconnected
@@ -419,11 +448,13 @@ fn toggle_output_window(
 
     emit_cached_teleprompter_state(&output_window, &app_state)?;
 
+    let measured = read_measured_viewport(&app_state)?;
     let status = make_output_status(
         &monitors,
         primary_position,
         Some(&target_display_id),
         true,
+        measured.as_ref(),
         None,
     );
     emit_output_status(&app, &status)?;
@@ -493,7 +524,15 @@ fn select_output_display(
             main_window.set_focus().map_err(|error| error.to_string())?;
         }
     }
-    let status = make_output_status(&monitors, primary_position, Some(&display_id), opened, None);
+    let measured = read_measured_viewport(&app_state)?;
+    let status = make_output_status(
+        &monitors,
+        primary_position,
+        Some(&display_id),
+        opened,
+        measured.as_ref(),
+        None,
+    );
     emit_output_status(&app, &status)?;
     Ok(status)
 }
@@ -508,6 +547,44 @@ fn output_window_ready(app: AppHandle, app_state: State<AppState>) -> Result<(),
     }
 
     Ok(())
+}
+
+#[tauri::command]
+fn output_viewport(
+    app: AppHandle,
+    window: WebviewWindow,
+    width: u32,
+    height: u32,
+    app_state: State<AppState>,
+) -> Result<(), String> {
+    if window.label() != "output" {
+        return Err("只有输出窗口可以上报显示区域".to_string());
+    }
+    // 隐藏状态下的窗口尺寸不代表第二屏，忽略
+    if width == 0 || height == 0 || !window.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    let Some(display_id) = read_display_id(&app_state.active_output_display_id)? else {
+        return Ok(());
+    };
+    let next = MeasuredViewport {
+        display_id,
+        width,
+        height,
+    };
+    {
+        let mut current = app_state
+            .output_viewport
+            .lock()
+            .map_err(|_| "状态锁定失败".to_string())?;
+        if current.as_ref() == Some(&next) {
+            return Ok(());
+        }
+        *current = Some(next);
+    }
+    let main_window = main_window(&app)?;
+    let status = inspect_output_status(&app, &main_window, &app_state, None)?;
+    emit_output_status(&app, &status)
 }
 
 #[tauri::command]
@@ -565,6 +642,7 @@ pub fn run() {
             get_output_status,
             select_output_display,
             output_window_ready,
+            output_viewport,
             teleprompter_state,
             toggle_fullscreen
         ])
