@@ -579,3 +579,156 @@ test("Escape in the main window closes an open output window", async ({ page }) 
   await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "false");
   await expect.poll(() => page.evaluate(() => window.__closeCalls)).toBe(2);
 });
+
+// 主窗口与第二屏用两个页面模拟：主窗口 sendState 直接转发给输出页，验证手动定位后第二屏及时跟随
+async function openLinkedOutput(context) {
+  const output = await context.newPage();
+  await output.addInitScript(() => {
+    window.teleprompterBridge = {
+      onState: (callback) => { window.__receiveState = callback; },
+      onOutputStatus: () => {},
+      outputWindowReady: () => Promise.resolve(),
+      closeOutputWindow: () => Promise.resolve({ opened: false }),
+    };
+  });
+  await output.goto(`${appUrl}?mode=output`);
+
+  const main = await context.newPage();
+  await main.exposeFunction("__forwardState", (message) => output.evaluate((state) => window.__receiveState(state), message));
+  await main.addInitScript(() => {
+    localStorage.setItem("local-teleprompter-state-v2", JSON.stringify({
+      text: Array.from({ length: 200 }, (_, index) => `同步测试第 ${index + 1} 行`).join("\n"),
+    }));
+    const status = { opened: false, displayCount: 2, outputWidth: 1280, outputHeight: 720 };
+    window.teleprompterBridge = {
+      sendState: (state) => { window.__forwardState(state); },
+      onState: () => {},
+      onOutputStatus: () => {},
+      toggleOutputWindow: async () => { status.opened = !status.opened; return { ...status }; },
+      closeOutputWindow: async () => { status.opened = false; return { ...status }; },
+      getOutputStatus: async () => ({ ...status }),
+    };
+  });
+  await main.goto(appUrl);
+  await main.locator("#outputButton").click();
+  await expect(main.locator("#outputButton")).toHaveAttribute("aria-pressed", "true");
+  await expect(output.locator("#scriptText")).toContainText("同步测试第 200 行");
+  return { main, output };
+}
+
+function readProgress(page) {
+  return page.evaluate(() => {
+    const text = document.querySelector("#scriptText");
+    const scroll = parseFloat(getComputedStyle(text).getPropertyValue("--scroll-y")) || 0;
+    return Math.abs(scroll) / text.offsetHeight;
+  });
+}
+
+async function expectInSync(main, output) {
+  await expect.poll(async () => Math.abs(await readProgress(main) - await readProgress(output))).toBeLessThan(0.005);
+}
+
+test("dragging the progress slider while playing seeks and keeps the output in sync", async ({ context }) => {
+  const { main, output } = await openLinkedOutput(context);
+  await main.locator("#stage").focus();
+  await main.keyboard.press("Space");
+  await expect(main.locator("#playButton")).not.toHaveClass(/primary/);
+
+  const slider = await main.locator("#browseRange").boundingBox();
+  const x = slider.x + slider.width / 2;
+  await main.mouse.move(x, slider.y + slider.height * 0.2);
+  await main.mouse.down();
+  await main.mouse.move(x, slider.y + slider.height * 0.6, { steps: 6 });
+  // 拖动中：主窗口跟随进度条，第二屏实时跟随
+  await expect.poll(() => readProgress(main)).toBeGreaterThan(0.5);
+  await expectInSync(main, output);
+  await main.mouse.up();
+
+  // 松手后继续播放，不会被拉回拖动前的位置
+  await main.waitForTimeout(300);
+  expect(await readProgress(main)).toBeGreaterThan(0.5);
+  await expect(main.locator("#playButton")).not.toHaveClass(/primary/);
+  await expectInSync(main, output);
+});
+
+test("manual moves while paused and playing reach the output window", async ({ context }) => {
+  const { main, output } = await openLinkedOutput(context);
+  const stage = await main.locator("#stage").boundingBox();
+
+  for (const mode of ["paused", "playing"]) {
+    await main.locator("#resetButton").click();
+    await main.locator("#stage").focus();
+    if (mode === "playing") {
+      await main.keyboard.press("Space");
+    }
+
+    await main.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
+    await main.mouse.wheel(0, 2000);
+    await expect.poll(() => readProgress(main)).toBeGreaterThan(0.1);
+    await expectInSync(main, output);
+
+    await main.keyboard.press("Shift+ArrowDown");
+    await expectInSync(main, output);
+
+    await main.locator("#endButton").click();
+    await expect.poll(() => readProgress(output)).toBeGreaterThan(0.99);
+
+    await main.locator("#stage").focus();
+    await main.keyboard.press("r");
+    await expect.poll(() => readProgress(output)).toBeLessThan(0.01);
+    await expectInSync(main, output);
+
+    if (mode === "playing") {
+      await main.keyboard.press("Space");
+    }
+  }
+});
+
+test("horizontal offset matches between main preview and a larger output display", async ({ browser }) => {
+  // 第二屏 1920 宽、主窗口 1280 宽：水平位置必须按画布比例换算，而不是各自窗口宽度
+  const outputContext = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  const mainContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const output = await outputContext.newPage();
+    await output.addInitScript(() => {
+      window.teleprompterBridge = {
+        onState: (callback) => { window.__receiveState = callback; },
+        onOutputStatus: () => {},
+        outputWindowReady: () => Promise.resolve(),
+        closeOutputWindow: () => Promise.resolve({ opened: false }),
+      };
+    });
+    await output.goto(`${appUrl}?mode=output`);
+
+    const main = await mainContext.newPage();
+    await main.exposeFunction("__forwardState", (message) => output.evaluate((state) => window.__receiveState(state), message));
+    await main.addInitScript(() => {
+      const status = { opened: false, displayCount: 2, outputWidth: 1920, outputHeight: 1080 };
+      window.teleprompterBridge = {
+        sendState: (state) => { window.__forwardState(state); },
+        onState: () => {},
+        onOutputStatus: () => {},
+        toggleOutputWindow: async () => { status.opened = !status.opened; return { ...status }; },
+        getOutputStatus: async () => ({ ...status }),
+      };
+    });
+    await main.goto(appUrl);
+    await main.locator("#outputButton").click();
+    await expect(main.locator("#outputButton")).toHaveAttribute("aria-pressed", "true");
+
+    const textCenter = (page) => page.evaluate(() => {
+      const surface = document.querySelector("#previewSurface").getBoundingClientRect();
+      const text = document.querySelector("#scriptText").getBoundingClientRect();
+      return ((text.left + text.right) / 2 - surface.left) / surface.width;
+    });
+
+    await main.locator("#offsetRange").fill("10");
+    await main.locator("#offsetRange").dispatchEvent("input");
+    await expect(main.locator("#offsetValue")).toHaveText("10%");
+    await expect.poll(() => textCenter(main)).toBeCloseTo(0.6, 2);
+    await expect.poll(() => textCenter(output)).toBeCloseTo(0.6, 2);
+  } finally {
+    await outputContext.close();
+    await mainContext.close();
+  }
+});

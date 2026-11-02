@@ -206,7 +206,7 @@
       letter-spacing: var(--script-spacing, 0px);
       text-align: center;
       overflow-wrap: anywhere;
-      transform: translateX(var(--script-offset-x, 0vw)) translateY(var(--scroll-y, 0px)) scaleX(var(--mirror-x, 1)) scaleY(var(--mirror-y, 1));
+      transform: translateX(calc(var(--preview-base-width, 1280px) * var(--script-offset, 0))) translateY(var(--scroll-y, 0px)) scaleX(var(--mirror-x, 1)) scaleY(var(--mirror-y, 1));
       will-change: transform;
       text-shadow: var(--prompter-shadow, 0 2px 18px rgba(0, 0, 0, .86));
     }
@@ -237,14 +237,15 @@
       z-index: 4;
       display: none;
       padding: 16px 24px;
-      border: 1px solid rgba(128, 202, 255, .24);
+      border: 1px solid rgba(128, 202, 255, .14);
       border-radius: 8px;
+      /* 半透明 + 轻度模糊：压在稿件上时能透出下面的文字轮廓，数字仍然清晰 */
       color: rgba(244, 247, 250, .86);
-      background: rgba(7, 11, 15, .66);
+      background: rgba(7, 11, 15, .42);
       font-size: 44px;
       font-weight: 760;
       line-height: 1;
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(4px);
       transform: translateX(-50%) scaleX(var(--mirror-x, 1)) scaleY(var(--mirror-y, 1));
     }
 
@@ -258,9 +259,9 @@
       }
 
     body.display-light .output-remaining {
-      border-color: rgba(0, 0, 0, .16);
+      border-color: rgba(0, 0, 0, .1);
       color: rgba(5, 6, 7, .78);
-      background: rgba(255, 255, 255, .76);
+      background: rgba(255, 255, 255, .46);
     }
 
     .stage-progress-label {
@@ -1850,7 +1851,8 @@
       elements.text.style.setProperty("--script-size", `${fontSize}px`);
       elements.text.style.setProperty("--script-line-height", lineHeight);
       elements.text.style.setProperty("--script-spacing", `${spacing}px`);
-      elements.text.style.setProperty("--script-offset-x", `${offset}vw`);
+      // 水平位置按虚拟画布宽度的百分比计算，主屏预览和第二屏比例一致（之前用 vw，会随各自窗口宽度变化）
+      elements.text.style.setProperty("--script-offset", String(offset / 100));
       elements.stage.style.setProperty("--guide-top", `${guide}%`);
       elements.lineRange.min = String(lineMin);
       elements.lineRange.value = String(lineSetting);
@@ -1861,7 +1863,7 @@
       elements.lineValue.textContent = `${lineSetting}px`;
       elements.spacingValue.textContent = spacing === 0 ? "0" : `${spacing}px`;
       elements.widthValue.textContent = `${width}%`;
-      elements.offsetValue.textContent = offset === 0 ? "0" : `${offset}vw`;
+      elements.offsetValue.textContent = offset === 0 ? "0" : `${offset}%`;
       elements.guideValue.textContent = `${guide}%`;
       elements.text.style.setProperty("--mirror-x", getScreenMirrorX());
       elements.text.style.setProperty("--mirror-y", getScreenMirrorY());
@@ -2025,6 +2027,8 @@
     function seekToProgress(percent) {
       const nextProgress = clamp(Number(percent) || 0, 0, 100) / 100;
       setScrollY(getScrollYFromProgress(nextProgress));
+      // 播放中锚点是动画循环的唯一进度来源，拖动进度条也必须同步锚点，否则下一帧就被拉回去
+      setPlaybackAnchor(getScrollProgress());
       elements.stage.focus({ preventScroll: true });
     }
 
@@ -2494,6 +2498,10 @@
     elements.browseRange.addEventListener("input", () => {
       seekingProgress = true;
       seekToProgress(getProgressFromBrowseSlider(elements.browseRange.value));
+      // 拖动过程中第二屏实时跟随；暂停时 setScrollY 已发送，播放中需强制发送新的播放锚点
+      if (playing) {
+        publishState(true);
+      }
     });
     elements.browseRange.addEventListener("change", () => {
       seekingProgress = false;
