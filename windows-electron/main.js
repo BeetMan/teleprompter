@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, powerSaveBlocker, screen, shell } = require("electron");
 
 let mainWindow;
 let outputWindow;
@@ -10,6 +10,20 @@ let measuredOutputViewport = null;
 let displayChangeTimer = null;
 let lastTeleprompterSnapshot = null;
 let lastTeleprompterPlayback = null;
+let keepAwakeBlockerId = null;
+
+// 播放中或第二屏打开时阻止显示器熄屏（由主窗口按状态开关）
+function setKeepAwake(active) {
+  const started = keepAwakeBlockerId !== null && powerSaveBlocker.isStarted(keepAwakeBlockerId);
+  if (active && !started) {
+    keepAwakeBlockerId = powerSaveBlocker.start("prevent-display-sleep");
+  } else if (!active && keepAwakeBlockerId !== null) {
+    if (started) {
+      powerSaveBlocker.stop(keepAwakeBlockerId);
+    }
+    keepAwakeBlockerId = null;
+  }
+}
 
 // 把外链交给系统浏览器打开，避免在应用内新开带渲染进程的窗口或导航走本地页面
 function constrainWebNavigation(webContents) {
@@ -76,6 +90,7 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    setKeepAwake(false);
     if (outputWindow && !outputWindow.isDestroyed()) {
       outputWindow.close();
     }
@@ -300,6 +315,13 @@ ipcMain.handle("output-viewport", (event, size) => {
 });
 
 ipcMain.handle("select-output-display", (_event, displayId) => selectOutputDisplay(displayId));
+
+ipcMain.handle("set-keep-awake", (event, active) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    return;
+  }
+  setKeepAwake(Boolean(active));
+});
 
 ipcMain.on("teleprompter-state", (event, state) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {

@@ -227,6 +227,8 @@
       border-radius: 8px;
       color: var(--muted);
       background: rgba(7, 11, 15, .7);
+      /* Safari 18 之前的 WebKit（旧版 macOS 的桌面壳）只认带前缀的写法 */
+      -webkit-backdrop-filter: blur(10px);
       backdrop-filter: blur(10px);
     }
 
@@ -245,6 +247,7 @@
       font-size: 44px;
       font-weight: 760;
       line-height: 1;
+      -webkit-backdrop-filter: blur(2px);
       backdrop-filter: blur(2px);
       transform: translateX(-50%) scaleX(var(--mirror-x, 1)) scaleY(var(--mirror-y, 1));
     }
@@ -778,6 +781,7 @@
       pointer-events: none;
       z-index: 20;
       transition: opacity .14s ease;
+      -webkit-backdrop-filter: blur(6px);
       backdrop-filter: blur(6px);
       font-size: 20px;
       font-weight: 760;
@@ -998,6 +1002,7 @@
       color: var(--muted);
       background: rgba(7, 11, 15, .92);
       border-bottom: 1px solid var(--line);
+      -webkit-backdrop-filter: blur(8px);
       backdrop-filter: blur(8px);
       font-size: 12px;
       line-height: 1;
@@ -1195,7 +1200,7 @@
             </div>
           </div>
         </div>
-        <div class="shortcut-hint">Space 播放 · R 重置 · F 全屏 · ↑↓ 进度 · ←→ 速度</div>
+        <div class="shortcut-hint">Space 播放 · R 重置 · F 全屏 · ↑↓ 进度 · PgUp/PgDn 翻页 · ←→ 速度</div>
       </div>
 
       <div class="script-drawer" id="scriptDrawer">
@@ -1333,6 +1338,10 @@
     let outputStatusRefreshPending = false;
     let outputTogglePending = false;
     let statusToastTimer = 0;
+    // 防休眠：播放中或第二屏打开时阻止显示器熄屏（长时间播放没有键鼠输入，系统会按节能设置关屏）
+    let keepAwakeWanted = false;
+    let wakeLockSentinel = null;
+    let wakeLockRequestPending = false;
 
     if (isOutputMode) {
       document.body.classList.add("output-mode");
@@ -1348,6 +1357,7 @@
         selectOutputDisplay: (displayId) => tauriInvoke("select_output_display", { displayId }),
         outputWindowReady: () => tauriInvoke("output_window_ready"),
         reportOutputViewport: (size) => tauriInvoke("output_viewport", size),
+        setKeepAwake: (active) => tauriInvoke("set_keep_awake", { active }),
         sendState: (state) => {
           tauriInvoke("teleprompter_state", { state }).catch(() => {});
         },
@@ -1599,10 +1609,63 @@
       elements.lightModeButton?.setAttribute("aria-pressed", String(displayMode === "light"));
     }
 
+    // 网页版的防休眠：Screen Wake Lock API。页面隐藏时浏览器会自动释放，恢复可见后要重新申请
+    async function syncWebWakeLock() {
+      if (!navigator.wakeLock?.request) {
+        return;
+      }
+      const shouldHold = () => keepAwakeWanted && document.visibilityState === "visible";
+      if (!shouldHold()) {
+        const sentinel = wakeLockSentinel;
+        wakeLockSentinel = null;
+        sentinel?.release?.()?.catch?.(() => {});
+        return;
+      }
+      if (wakeLockSentinel || wakeLockRequestPending) {
+        return;
+      }
+      wakeLockRequestPending = true;
+      try {
+        const sentinel = await navigator.wakeLock.request("screen");
+        sentinel.addEventListener?.("release", () => {
+          if (wakeLockSentinel === sentinel) {
+            wakeLockSentinel = null;
+          }
+        });
+        wakeLockSentinel = sentinel;
+      } catch {
+        // 低电量模式、权限策略等情况下申请会被拒绝，提词本身不受影响
+      } finally {
+        wakeLockRequestPending = false;
+      }
+      // 等待期间状态可能已经变了（例如刚开始就暂停），按最新状态再对齐一次
+      if (!shouldHold()) {
+        syncWebWakeLock();
+      }
+    }
+
+    // 桌面版交给原生壳处理（不依赖各平台 WebView 是否支持 Wake Lock），网页版用浏览器 API
+    function updateKeepAwake() {
+      if (isOutputMode) {
+        return;
+      }
+      const wanted = playing || outputActive;
+      if (wanted === keepAwakeWanted) {
+        return;
+      }
+      keepAwakeWanted = wanted;
+      if (window.teleprompterBridge?.setKeepAwake) {
+        Promise.resolve(window.teleprompterBridge.setKeepAwake(wanted)).catch(() => {});
+      } else {
+        syncWebWakeLock();
+      }
+    }
+
     function setOutputActive(active) {
       const nextActive = Boolean(active);
       const changed = nextActive !== outputActive;
       outputActive = nextActive;
+      updateKeepAwake();
       elements.outputButton?.setAttribute("aria-pressed", String(outputActive));
       if (elements.outputLabel) {
         elements.outputLabel.textContent = outputActive ? "关闭第二屏" : "第二屏输出";
@@ -1991,6 +2054,7 @@
       playing = Boolean(nextPlaying);
       setPlaybackAnchor(getScrollProgress(), now);
       updatePlayingUi();
+      updateKeepAwake();
       publishState(true);
       // 播放 / 暂停按钮是高频控件，操作后把焦点交回预览区，让方向键等播放快捷键保持可用
       if (!isOutputMode && document.activeElement === elements.playButton) {
@@ -2143,6 +2207,19 @@
       const lineStep = Number(elements.lineRange.value) || Number(elements.sizeRange.value) || defaultState.size;
       const amount = lineStep * (fast ? 3 : 1);
       setScrollY(scrollY + direction * amount);
+      // 播放中锚点是动画循环的唯一进度来源，手动调整必须同步锚点，否则下一帧就被拉回去
+      setPlaybackAnchor(getScrollProgress());
+    }
+
+    // 翻页笔和键盘的 PageUp / PageDown：按播放方向前进或后退一“页”，与镜像方向无关。
+    // 一页 = 指示线到稿件来向那一侧画面边缘的距离，也就是把画面里最远的一行送到指示线上
+    function nudgeScrollByPage(forward) {
+      const guide = clamp(Number(elements.guideRange.value) || defaultState.guide, 0, 100) / 100;
+      const ahead = getScreenMirrorY() === -1 ? guide : 1 - guide;
+      const lineStep = Number(elements.lineRange.value) || defaultState.line;
+      const amount = Math.max(lineStep, previewBaseHeight * ahead);
+      const towardEnd = Math.sign(getEndScrollY() - getStartScrollY()) || -1;
+      setScrollY(scrollY + towardEnd * (forward ? 1 : -1) * amount);
       // 播放中锚点是动画循环的唯一进度来源，手动调整必须同步锚点，否则下一帧就被拉回去
       setPlaybackAnchor(getScrollProgress());
     }
@@ -2484,7 +2561,10 @@
         window.requestAnimationFrame(() => publishState(true));
         elements.saveStatus.textContent = `已读取 ${file.name}`;
       } catch (error) {
-        elements.saveStatus.textContent = error.message || "读取失败";
+        const reason = error.message || "读取失败";
+        elements.saveStatus.textContent = reason;
+        // saveStatus 只给读屏软件用，读取失败必须有看得见的提示；当前稿件保持不变
+        showStatusToast(`读取 ${file.name} 失败：${reason}`);
       } finally {
         elements.fileInput.value = "";
       }
@@ -2740,6 +2820,11 @@
         nudgeScrollByKeyboard(direction, event.shiftKey);
         publishState(true);
       }
+      if (event.key === "PageDown" || event.key === "PageUp") {
+        event.preventDefault();
+        nudgeScrollByPage(event.key === "PageDown");
+        publishState(true);
+      }
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         const direction = event.key === "ArrowRight" ? 1 : -1;
@@ -2768,6 +2853,11 @@
       document.addEventListener("visibilitychange", scheduleOutputViewportReport);
     } else {
       initializeOutputDisplays();
+      document.addEventListener("visibilitychange", () => {
+        if (!window.teleprompterBridge?.setKeepAwake) {
+          syncWebWakeLock();
+        }
+      });
     }
     publishState(true);
     requestAnimationFrame(animate);

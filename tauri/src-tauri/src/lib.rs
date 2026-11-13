@@ -1,4 +1,5 @@
-use std::sync::Mutex;
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -18,6 +19,8 @@ struct AppState {
     output_received_live_state: Mutex<bool>,
     // 第二屏窗口实测的可用显示区域（CSS 像素），只对测量时所在的显示器有效
     output_viewport: Mutex<Option<MeasuredViewport>>,
+    // 防休眠线程的开关通道，第一次用到时才启动线程
+    keep_awake: OnceLock<Sender<bool>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -587,6 +590,51 @@ fn output_viewport(
     emit_output_status(&app, &status)
 }
 
+// 防休眠由一个专用线程持有，而不是放在命令里直接申请：
+// - Windows 的 SetThreadExecutionState 绑定调用线程，申请和释放必须在同一线程上；
+// - Linux 走 D-Bus 阻塞调用，释放失败时 keepawake 会 panic，不能让它发生在主线程上。
+// 收到 true 时申请“阻止显示器熄屏”，收到 false 时释放；进程退出时系统会自动回收。
+fn spawn_keep_awake_worker(app_id: String) -> Sender<bool> {
+    let (sender, receiver) = mpsc::channel::<bool>();
+    std::thread::spawn(move || {
+        let mut guard: Option<keepawake::KeepAwake> = None;
+        for active in receiver {
+            if !active {
+                guard = None;
+            } else if guard.is_none() {
+                // 申请失败（例如 Linux 桌面没有提供 org.freedesktop.ScreenSaver）不影响提词，下次开关时再试
+                // reason 用 ASCII：macOS 的 `pmset -g assertions` 显示不了中文名称，排查时会看到空串
+                guard = keepawake::Builder::default()
+                    .display(true)
+                    .reason("Teleprompter is playing or showing on the output display")
+                    .app_name("Teleprompter")
+                    .app_reverse_domain(app_id.clone())
+                    .create()
+                    .map_err(|error| eprintln!("keep awake unavailable: {error}"))
+                    .ok();
+            }
+        }
+    });
+    sender
+}
+
+#[tauri::command]
+fn set_keep_awake(
+    app: AppHandle,
+    window: WebviewWindow,
+    active: bool,
+    app_state: State<AppState>,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("只有主窗口可以控制防休眠".to_string());
+    }
+    app_state
+        .keep_awake
+        .get_or_init(|| spawn_keep_awake_worker(app.config().identifier.clone()))
+        .send(active)
+        .map_err(|_| "防休眠线程不可用".to_string())
+}
+
 #[tauri::command]
 fn toggle_fullscreen(main_window: WebviewWindow) -> Result<bool, String> {
     let next = !main_window.is_fullscreen().unwrap_or(false);
@@ -644,6 +692,7 @@ pub fn run() {
             output_window_ready,
             output_viewport,
             teleprompter_state,
+            set_keep_awake,
             toggle_fullscreen
         ])
         .on_window_event(|window, event| {
