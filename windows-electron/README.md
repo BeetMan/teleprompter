@@ -2,7 +2,7 @@
 
 > Electron 版仅作为 Windows 备用版本维护，日常使用和跨平台请使用 [Tauri 版](../tauri/README.md)。
 
-Electron 版是提词器的兼容桌面版本，当前产品版本为 `6.1.5`。它与 Tauri 版共享主要界面和提词功能，并通过 Electron 管理主窗口、第二屏输出和程序退出。
+Electron 版是提词器的兼容桌面版本，版本号与 Tauri 版统一。它与 Tauri 版共享主要界面和提词功能，并通过 Electron 管理主窗口、第二屏输出和程序退出。
 
 ## 功能
 
@@ -37,8 +37,8 @@ npm run dist:win -- --config.win.signAndEditExecutable=false
 
 构建结果位于 `dist/`：
 
-- `提词器 6.1.5.exe`：便携版
-- `提词器 Setup 6.1.5.exe`：安装版
+- `提词器 X.Y.Z.exe`：便携版
+- `提词器 Setup X.Y.Z.exe`：安装版
 
 当前构建默认未配置 Windows 代码签名证书，部分设备可能显示 Smart App Control 或 SmartScreen 警告。
 

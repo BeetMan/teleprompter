@@ -12,7 +12,7 @@
 
 ## 当前版本
 
-当前统一版本号为 `6.5.0`，记录在根目录的 `VERSION` 文件中。
+统一版本号记录在根目录的 `VERSION` 文件中，最新版本见 [GitHub Releases](https://github.com/BeetMan/teleprompter/releases/latest)。
 
 - **Tauri 版（主力维护）**：支持 Windows、macOS、Linux，体积较小、启动较快，推荐日常使用。
 - **Electron 版（备用）**：仅提供 Windows 版本，功能与 Tauri 版保持一致，不再新增平台。
@@ -41,7 +41,8 @@
 - 黑底白字与纯白底黑字两种显示模式
 - 调节速度、字号、行间距、字间距、显示宽度和水平位置
 - 调节第二屏指示线位置，显示进度点和剩余字数
-- 回到顶部、回到尾部、进度拖动及键盘快捷控制
+- 回到顶部、回到尾部、进度拖动及键盘快捷控制，支持翻页笔翻页
+- 播放中或第二屏打开时自动阻止显示器熄屏
 
 ## 快速开始
 
@@ -91,8 +92,10 @@ npm run dist:win -- --config.win.signAndEditExecutable=false
 | --- | --- |
 | `Space` | 播放 / 暂停 |
 | `R` | 回到顶部 |
-| `↑` / `↓` | 快速滚动页面 |
-| `←` / `→` | 调节滚动速度 |
+| `F` | 全屏 |
+| `↑` / `↓` | 快速滚动页面（按住 `Shift` 幅度更大） |
+| `PageUp` / `PageDown` | 往回 / 往后翻一页，翻页笔的上一页 / 下一页键同样有效 |
+| `←` / `→` | 调节滚动速度（按住 `Shift` 幅度更大） |
 | `Esc` | 关闭第二屏输出（仅桌面版，主窗口或第二屏中均可）；未开第二屏时停止播放 |
 
 ## 开发检查
@@ -110,7 +113,7 @@ npm run check
 版本号变更时使用同步脚本：
 
 ```bash
-npm run sync:version -- 6.5.0
+npm run sync:version -- X.Y.Z
 ```
 
 ## GitHub Actions 发版
