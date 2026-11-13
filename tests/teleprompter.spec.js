@@ -820,3 +820,137 @@ test("main window moves controls to the side for portrait outputs", async ({ pag
   await page.evaluate(() => window.__pushStatus({ outputWidth: 1920, outputHeight: 1080 }));
   await expect(page.locator(".app")).not.toHaveClass(/layout-side/);
 });
+
+test("a failed import shows a visible error notice and keeps the current script", async ({ page }) => {
+  await page.goto(appUrl);
+  const before = await page.locator("#scriptText").textContent();
+
+  await page.locator("#fileInput").setInputFiles({
+    name: "broken.docx",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    buffer: Buffer.from("this is not a zip archive at all, just some plain text", "utf8"),
+  });
+
+  // 错误必须出现在看得见的提示里（saveStatus 只给读屏软件用），稿件保持不变
+  await expect(page.locator("#statusToast")).toHaveClass(/visible/);
+  await expect(page.locator("#statusToast")).toContainText("broken.docx");
+  await expect(page.locator("#statusToast")).toContainText("无法识别 docx 文件结构");
+  await expect(page.locator("#scriptText")).toHaveText(before);
+});
+
+test("PageDown and PageUp move one page in playback direction, mirrored or not", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.locator("#toggleEditorButton").click();
+  await page.locator("#scriptInput").fill(Array.from({ length: 200 }, (_, index) => `第 ${index + 1} 行测试文字`).join("\n"));
+  await page.locator("#toggleEditorButton").click();
+
+  const scrollY = () => page.evaluate(() => parseFloat(document.querySelector("#scriptText").style.getPropertyValue("--scroll-y")));
+  const percent = async () => Number.parseInt(await page.locator("#browseValue").textContent(), 10);
+
+  // 默认指示线在 50%，一页 = 半个画布高度（720 的一半）
+  await page.keyboard.press("PageDown");
+  await expect.poll(scrollY).toBeCloseTo(-360, 0);
+  expect(await percent()).toBeGreaterThan(0);
+  await page.keyboard.press("PageUp");
+  await expect.poll(scrollY).toBeCloseTo(0, 0);
+
+  // 播放中翻页后从新位置继续，不被拉回
+  await page.keyboard.press("Space");
+  await page.keyboard.press("PageDown");
+  const afterPage = await scrollY();
+  expect(afterPage).toBeLessThanOrEqual(-360);
+  await page.waitForTimeout(300);
+  expect(await scrollY()).toBeLessThan(afterPage);
+  await page.keyboard.press("Space");
+
+  // 垂直镜像下滚动方向相反，PageDown 仍然是向后翻（进度增加）
+  await page.locator("#mirrorYButton").click();
+  const mirroredStart = await scrollY();
+  const mirroredPercent = await percent();
+  await page.keyboard.press("PageDown");
+  await expect.poll(scrollY).toBeCloseTo(mirroredStart + 360, 0);
+  expect(await percent()).toBeGreaterThan(mirroredPercent);
+  await page.keyboard.press("PageUp");
+  await expect.poll(scrollY).toBeCloseTo(mirroredStart, 0);
+});
+
+test("desktop bridge keeps the display awake while playing or outputting", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__keepAwake = [];
+    window.teleprompterBridge = {
+      toggleOutputWindow: async () => ({ opened: true, displayCount: 2, outputWidth: 1280, outputHeight: 720 }),
+      closeOutputWindow: async () => ({ opened: false, displayCount: 2 }),
+      setKeepAwake: async (active) => {
+        window.__keepAwake.push(active);
+      },
+      sendState: () => {},
+      onState: () => {},
+      onOutputStatus: () => {},
+    };
+  });
+
+  await page.goto(appUrl);
+  const calls = () => page.evaluate(() => window.__keepAwake);
+  expect(await calls()).toEqual([]);
+
+  await page.keyboard.press("Space");
+  await expect.poll(calls).toEqual([true]);
+  await page.keyboard.press("Space");
+  await expect.poll(calls).toEqual([true, false]);
+
+  // 第二屏打开期间即使暂停也保持常亮，播放 / 暂停不会重复开关
+  await page.locator("#outputButton").click();
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(calls).toEqual([true, false, true]);
+  await page.keyboard.press("Space");
+  await expect(page.locator("#playLabel")).toHaveText("暂停");
+  await page.keyboard.press("Space");
+  await expect(page.locator("#playLabel")).toHaveText("开始");
+  expect(await calls()).toEqual([true, false, true]);
+
+  // 第二屏关闭且未在播放时释放
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#outputButton")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(calls).toEqual([true, false, true, false]);
+});
+
+test("web preview holds a screen wake lock only while playing and visible", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__wakeLock = { requests: [], releases: 0 };
+    Object.defineProperty(navigator, "wakeLock", {
+      configurable: true,
+      value: {
+        request: async (type) => {
+          window.__wakeLock.requests.push(type);
+          return {
+            release: async () => {
+              window.__wakeLock.releases += 1;
+            },
+            addEventListener: () => {},
+          };
+        },
+      },
+    });
+  });
+
+  await page.goto(appUrl);
+  await expect(page.locator("body")).toHaveClass(/web-preview/);
+  const state = () => page.evaluate(() => window.__wakeLock);
+  const setVisibility = (value) => page.evaluate((next) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => next });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, value);
+
+  await page.keyboard.press("Space");
+  await expect.poll(state).toEqual({ requests: ["screen"], releases: 0 });
+  await page.keyboard.press("Space");
+  await expect.poll(state).toEqual({ requests: ["screen"], releases: 1 });
+
+  // 播放中切到后台再回来：隐藏时放开，恢复可见后重新申请
+  await page.keyboard.press("Space");
+  await expect.poll(state).toEqual({ requests: ["screen", "screen"], releases: 1 });
+  await setVisibility("hidden");
+  await expect.poll(state).toEqual({ requests: ["screen", "screen"], releases: 2 });
+  await setVisibility("visible");
+  await expect.poll(state).toEqual({ requests: ["screen", "screen", "screen"], releases: 2 });
+});
